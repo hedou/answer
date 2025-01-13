@@ -1,25 +1,41 @@
-import React, { useState, useEffect } from 'react';
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import React, { useState } from 'react';
 import { Button, Col } from 'react-bootstrap';
 import { Trans, useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 
-import { resendEmail, checkImgCode } from '@answer/api';
-import { PicAuthCodeModal } from '@answer/components/Modal';
-import type {
-  ImgCodeRes,
-  ImgCodeReq,
-  FormDataType,
-} from '@answer/common/interface';
-import { userInfoStore } from '@answer/stores';
+import type { ImgCodeReq, FormDataType } from '@/common/interface';
+import { loggedUserInfoStore } from '@/stores';
+import { resendEmail } from '@/services';
+import { handleFormError } from '@/utils';
+import { useCaptchaPlugin } from '@/utils/pluginKit';
 
 interface IProps {
-  visible: boolean;
+  visible?: boolean;
 }
 
-const Index: React.FC<IProps> = ({ visible = false }) => {
+const Index: React.FC<IProps> = () => {
   const { t } = useTranslation('translation', { keyPrefix: 'inactive' });
   const [isSuccess, setSuccess] = useState(false);
-  const [showModal, setModalState] = useState(false);
-  const { e_mail } = userInfoStore((state) => state.user);
+  const { e_mail } = loggedUserInfoStore((state) => state.user);
   const [formData, setFormData] = useState<FormDataType>({
     captcha_code: {
       value: '',
@@ -27,75 +43,42 @@ const Index: React.FC<IProps> = ({ visible = false }) => {
       errorMsg: '',
     },
   });
-  const [imgCode, setImgCode] = useState<ImgCodeRes>({
-    captcha_id: '',
-    captcha_img: '',
-    verify: false,
-  });
 
-  const getImgCode = () => {
-    checkImgCode({
-      action: 'e_mail',
-    }).then((res) => {
-      setImgCode(res);
-    });
-  };
+  const emailCaptcha = useCaptchaPlugin('email');
 
-  const submit = (e?: any) => {
-    if (e) {
-      e.preventDefault();
-    }
-    let obj: ImgCodeReq = {};
-    if (imgCode.verify) {
-      const code = localStorage.getItem('captchaCode') || '';
-      obj = {
-        captcha_code: code,
+  const submit = () => {
+    let req: ImgCodeReq = {};
+    const imgCode = emailCaptcha?.getCaptcha();
+    if (imgCode?.verify) {
+      req = {
+        captcha_code: imgCode.captcha_code,
         captcha_id: imgCode.captcha_id,
       };
     }
-    resendEmail(obj)
-      .then(() => {
+    resendEmail(req)
+      .then(async () => {
+        await emailCaptcha?.close();
         setSuccess(true);
-        setModalState(false);
       })
       .catch((err) => {
-        if (err.isError && err.key) {
-          formData[err.key].isInvalid = true;
-          formData[err.key].errorMsg = err.value;
+        if (err.isError) {
+          emailCaptcha?.handleCaptchaError(err.list);
+          const data = handleFormError(err, formData);
+          setFormData({ ...data });
         }
-        setFormData({ ...formData });
-      })
-      .finally(() => {
-        getImgCode();
       });
   };
 
-  const onSentEmail = () => {
-    if (imgCode.verify) {
-      setModalState(true);
-      if (!formData.captcha_code.value) {
-        setFormData({
-          captcha_code: {
-            value: '',
-            isInvalid: false,
-            errorMsg: t('msg.empty'),
-          },
-        });
-      }
+  const onSentEmail = (evt) => {
+    evt.preventDefault();
+    if (!emailCaptcha) {
+      submit();
       return;
     }
-    submit();
+    emailCaptcha.check(() => {
+      submit();
+    });
   };
-
-  const handleChange = (params: FormDataType) => {
-    setFormData({ ...formData, ...params });
-  };
-
-  useEffect(() => {
-    if (visible) {
-      getImgCode();
-    }
-  }, [visible]);
 
   return (
     <Col md={6} className="mx-auto text-center">
@@ -120,20 +103,11 @@ const Index: React.FC<IProps> = ({ visible = false }) => {
           <Button variant="link" onClick={onSentEmail}>
             {t('btn_name')}
           </Button>
+          <Link to="/users/change-email" replace className="btn btn-link ms-2">
+            {t('change_btn_name')}
+          </Link>
         </>
       )}
-
-      <PicAuthCodeModal
-        visible={showModal}
-        data={{
-          captcha: formData.captcha_code,
-          imgCode,
-        }}
-        handleCaptcha={handleChange}
-        clickSubmit={submit}
-        refreshImgCode={getImgCode}
-        onClose={() => setModalState(false)}
-      />
     </Col>
   );
 };

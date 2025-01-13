@@ -1,3 +1,22 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package reason
 
 import (
@@ -5,59 +24,48 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/answerdev/answer/internal/schema"
-	"github.com/answerdev/answer/internal/service/config"
-	"github.com/answerdev/answer/internal/service/reason_common"
+	"github.com/apache/answer/internal/base/handler"
+	"github.com/apache/answer/internal/schema"
+	"github.com/apache/answer/internal/service/config"
+	"github.com/apache/answer/internal/service/reason_common"
 	"github.com/segmentfault/pacman/log"
 )
 
 type reasonRepo struct {
-	configRepo config.ConfigRepo
+	configService *config.ConfigService
 }
 
-func NewReasonRepo(configRepo config.ConfigRepo) reason_common.ReasonRepo {
+func NewReasonRepo(configService *config.ConfigService) reason_common.ReasonRepo {
 	return &reasonRepo{
-		configRepo: configRepo,
+		configService: configService,
 	}
 }
 
-func (rr *reasonRepo) ListReasons(ctx context.Context, req schema.ReasonReq) (resp []schema.ReasonItem, err error) {
-	var (
-		reasonAction = fmt.Sprintf("%s.%s.reasons", req.ObjectType, req.Action)
-		reasonKeys   []string
-		cfgValue     string
-	)
-	resp = []schema.ReasonItem{}
+func (rr *reasonRepo) ListReasons(ctx context.Context, objectType, action string) (resp []*schema.ReasonItem, err error) {
+	lang := handler.GetLangByCtx(ctx)
+	reasonAction := fmt.Sprintf("%s.%s.reasons", objectType, action)
+	resp = make([]*schema.ReasonItem, 0)
 
-	reasonKeys, err = rr.configRepo.GetArrayString(reasonAction)
+	reasonKeys, err := rr.configService.GetArrayStringValue(ctx, reasonAction)
 	if err != nil {
-		return
+		return nil, err
 	}
 	for _, reasonKey := range reasonKeys {
-		var (
-			reasonType int
-			reason     = schema.ReasonItem{}
-		)
-
-		cfgValue, err = rr.configRepo.GetString(reasonKey)
+		cfg, err := rr.configService.GetConfigByKey(ctx, reasonKey)
 		if err != nil {
 			log.Error(err)
 			continue
 		}
 
-		err = json.Unmarshal([]byte(cfgValue), &reason)
+		reason := &schema.ReasonItem{}
+		err = json.Unmarshal(cfg.GetByteValue(), reason)
 		if err != nil {
 			log.Error(err)
 			continue
 		}
-		reasonType, err = rr.configRepo.GetConfigType(reasonKey)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-
-		reason.ReasonType = reasonType
+		reason.Translate(reasonKey, lang)
+		reason.ReasonType = cfg.ID
 		resp = append(resp, reason)
 	}
-	return
+	return resp, nil
 }

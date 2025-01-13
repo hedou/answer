@@ -1,17 +1,35 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package report
 
 import (
 	"context"
 
-	"github.com/answerdev/answer/internal/base/constant"
-	"github.com/answerdev/answer/internal/base/pager"
-	"github.com/answerdev/answer/internal/schema"
-	"github.com/answerdev/answer/internal/service/report_common"
+	"github.com/apache/answer/internal/base/pager"
+	"github.com/apache/answer/internal/schema"
+	"github.com/apache/answer/internal/service/report_common"
 
-	"github.com/answerdev/answer/internal/base/data"
-	"github.com/answerdev/answer/internal/base/reason"
-	"github.com/answerdev/answer/internal/entity"
-	"github.com/answerdev/answer/internal/service/unique"
+	"github.com/apache/answer/internal/base/data"
+	"github.com/apache/answer/internal/base/reason"
+	"github.com/apache/answer/internal/entity"
+	"github.com/apache/answer/internal/service/unique"
 	"github.com/segmentfault/pacman/errors"
 )
 
@@ -35,7 +53,7 @@ func (rr *reportRepo) AddReport(ctx context.Context, report *entity.Report) (err
 	if err != nil {
 		return err
 	}
-	_, err = rr.data.DB.Insert(report)
+	_, err = rr.data.DB.Context(ctx).Insert(report)
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
@@ -43,31 +61,11 @@ func (rr *reportRepo) AddReport(ctx context.Context, report *entity.Report) (err
 }
 
 // GetReportListPage get report list page
-func (rr *reportRepo) GetReportListPage(ctx context.Context, dto schema.GetReportListPageDTO) (reports []entity.Report, total int64, err error) {
-	var (
-		ok         bool
-		status     int
-		objectType int
-		session    = rr.data.DB.NewSession()
-		cond       = entity.Report{}
-	)
-
-	// parse status
-	status, ok = entity.ReportStatus[dto.Status]
-	if !ok {
-		status = entity.ReportStatus["pending"]
-	}
-	cond.Status = status
-
-	// parse object type
-	objectType, ok = constant.ObjectTypeStrMapping[dto.ObjectType]
-	if ok {
-		cond.ObjectType = objectType
-	}
-
-	// order
-	session.OrderBy("updated_at desc")
-
+func (rr *reportRepo) GetReportListPage(ctx context.Context, dto *schema.GetReportListPageDTO) (
+	reports []*entity.Report, total int64, err error) {
+	cond := &entity.Report{}
+	cond.Status = dto.Status
+	session := rr.data.DB.Context(ctx).Desc("updated_at")
 	total, err = pager.Help(dto.Page, dto.PageSize, &reports, cond, session)
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
@@ -76,20 +74,29 @@ func (rr *reportRepo) GetReportListPage(ctx context.Context, dto schema.GetRepor
 }
 
 // GetByID get report by ID
-func (ar *reportRepo) GetByID(ctx context.Context, id string) (report entity.Report, exist bool, err error) {
-	report = entity.Report{}
-	exist, err = ar.data.DB.ID(id).Get(&report)
+func (rr *reportRepo) GetByID(ctx context.Context, id string) (report *entity.Report, exist bool, err error) {
+	report = &entity.Report{}
+	exist, err = rr.data.DB.Context(ctx).ID(id).Get(report)
+	if err != nil {
+		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	}
 	return
 }
 
-// UpdateByID handle report by ID
-func (ar *reportRepo) UpdateByID(
-	ctx context.Context,
-	id string,
-	handleData entity.Report) (err error) {
-	_, err = ar.data.DB.ID(id).Update(&handleData)
+// UpdateStatus update report status by ID
+func (rr *reportRepo) UpdateStatus(ctx context.Context, id string, status int) (err error) {
+	_, err = rr.data.DB.Context(ctx).ID(id).Update(&entity.Report{Status: status})
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	}
+	return
+}
+
+func (rr *reportRepo) GetReportCount(ctx context.Context) (count int64, err error) {
+	list := make([]*entity.Report, 0)
+	count, err = rr.data.DB.Context(ctx).Where("status =?", entity.ReportStatusPending).FindAndCount(&list)
+	if err != nil {
+		return count, errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
 	return
 }

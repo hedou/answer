@@ -1,7 +1,28 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package schema
 
 import (
-	"github.com/answerdev/answer/internal/entity"
+	"github.com/apache/answer/internal/base/validator"
+	"github.com/apache/answer/internal/entity"
+	"github.com/apache/answer/pkg/converter"
 	"github.com/jinzhu/copier"
 )
 
@@ -12,13 +33,27 @@ type AddCommentReq struct {
 	// reply comment id
 	ReplyCommentID string `validate:"omitempty" json:"reply_comment_id"`
 	// original comment content
-	OriginalText string `validate:"required" json:"original_text"`
+	OriginalText string `validate:"required,notblank,gte=2,lte=600" json:"original_text"`
 	// parsed comment content
-	ParsedText string `validate:"required" json:"parsed_text"`
+	ParsedText string `json:"-"`
 	// @ user id list
 	MentionUsernameList []string `validate:"omitempty" json:"mention_username_list"`
+	CaptchaID           string   `json:"captcha_id"`
+	CaptchaCode         string   `json:"captcha_code"`
+
 	// user id
 	UserID string `json:"-"`
+	// whether user can add it
+	CanAdd bool `json:"-"`
+	// whether user can edit it
+	CanEdit bool `json:"-"`
+	// whether user can delete it
+	CanDelete bool `json:"-"`
+}
+
+func (req *AddCommentReq) Check() (errFields []*validator.FormErrorField, err error) {
+	req.ParsedText = converter.Markdown2HTML(req.OriginalText)
+	return nil, nil
 }
 
 // RemoveCommentReq remove comment
@@ -26,7 +61,9 @@ type RemoveCommentReq struct {
 	// comment id
 	CommentID string `validate:"required" json:"comment_id"`
 	// user id
-	UserID string `json:"-"`
+	UserID      string `json:"-"`
+	CaptchaID   string `json:"captcha_id"`
+	CaptchaCode string `json:"captcha_code"`
 }
 
 // UpdateCommentReq update comment request
@@ -34,11 +71,33 @@ type UpdateCommentReq struct {
 	// comment id
 	CommentID string `validate:"required" json:"comment_id"`
 	// original comment content
-	OriginalText string `validate:"omitempty" json:"original_text"`
+	OriginalText string `validate:"required,notblank,gte=2,lte=600" json:"original_text"`
 	// parsed comment content
-	ParsedText string `validate:"omitempty" json:"parsed_text"`
+	ParsedText string `json:"-"`
 	// user id
-	UserID string `json:"-"`
+	UserID  string `json:"-"`
+	IsAdmin bool   `json:"-"`
+
+	// whether user can edit it
+	CanEdit bool `json:"-"`
+
+	// whether user can delete it
+	CaptchaID   string `json:"captcha_id"` // captcha_id
+	CaptchaCode string `json:"captcha_code"`
+}
+
+func (req *UpdateCommentReq) Check() (errFields []*validator.FormErrorField, err error) {
+	req.ParsedText = converter.Markdown2HTML(req.OriginalText)
+	return nil, nil
+}
+
+type UpdateCommentResp struct {
+	// comment id
+	CommentID string `json:"comment_id"`
+	// original comment content
+	OriginalText string `json:"original_text"`
+	// parsed comment content
+	ParsedText string `json:"parsed_text"`
 }
 
 // GetCommentListReq get comment list all request
@@ -69,10 +128,16 @@ type GetCommentWithPageReq struct {
 	PageSize int `validate:"omitempty,min=1" form:"page_size"`
 	// object id
 	ObjectID string `validate:"required" form:"object_id"`
+	// comment id
+	CommentID string `validate:"omitempty" form:"comment_id"`
 	// query condition
-	QueryCond string `validate:"omitempty,oneof=vote" form:"query_cond"`
+	QueryCond string `validate:"omitempty,oneof=vote created_at" form:"query_cond"`
 	// user id
 	UserID string `json:"-"`
+	// whether user can edit it
+	CanEdit bool `json:"-"`
+	// whether user can delete it
+	CanDelete bool `json:"-"`
 }
 
 // GetCommentReq get comment list page request
@@ -81,6 +146,10 @@ type GetCommentReq struct {
 	ID string `validate:"required" form:"id"`
 	// user id
 	UserID string `json:"-"`
+	// whether user can edit it
+	CanEdit bool `json:"-"`
+	// whether user can delete it
+	CanDelete bool `json:"-"`
 }
 
 // GetCommentResp comment response
@@ -163,6 +232,8 @@ type GetCommentPersonalWithPageResp struct {
 	ObjectType string `json:"object_type" enums:"question,answer,tag,comment"`
 	// title
 	Title string `json:"title"`
+	// url title
+	UrlTitle string `json:"url_title"`
 	// content
 	Content string `json:"content"`
 }

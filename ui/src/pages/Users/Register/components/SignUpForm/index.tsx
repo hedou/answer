@@ -1,12 +1,33 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import React, { FormEvent, useState } from 'react';
-import { Form, Button, Col } from 'react-bootstrap';
+import { Form, Button } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 
-import { register } from '@answer/api';
-import type { FormDataType } from '@answer/common/interface';
-
-import userStore from '@/stores/userInfo';
+import { useCaptchaPlugin } from '@/utils/pluginKit';
+import type { FormDataType, RegisterReqParams } from '@/common/interface';
+import { register } from '@/services';
+import userStore from '@/stores/loggedUserInfo';
+import { handleFormError, scrollToElementTop } from '@/utils';
+import { useLegalClick } from '@/behaviour/useLegalClick';
 
 interface Props {
   callback: () => void;
@@ -30,13 +51,11 @@ const Index: React.FC<Props> = ({ callback }) => {
       isInvalid: false,
       errorMsg: '',
     },
-    captcha_code: {
-      value: '',
-      isInvalid: false,
-      errorMsg: '',
-    },
   });
+
   const updateUser = userStore((state) => state.update);
+  const emailCaptcha = useCaptchaPlugin('email');
+  const nameRegex = /^[\w.-\s]{2,30}$/;
 
   const handleChange = (params: FormDataType) => {
     setFormData({ ...formData, ...params });
@@ -45,6 +64,7 @@ const Index: React.FC<Props> = ({ callback }) => {
   const checkValidated = (): boolean => {
     let bol = true;
     const { name, e_mail, pass } = formData;
+
     if (!name.value) {
       bol = false;
       formData.name = {
@@ -52,12 +72,19 @@ const Index: React.FC<Props> = ({ callback }) => {
         isInvalid: true,
         errorMsg: t('name.msg.empty'),
       };
-    } else if ([...name.value].length > 30) {
+    } else if (name.value.length < 2 || name.value.length > 30) {
       bol = false;
       formData.name = {
         value: name.value,
         isInvalid: true,
         errorMsg: t('name.msg.range'),
+      };
+    } else if (!nameRegex.test(name.value)) {
+      bol = false;
+      formData.name = {
+        value: name.value,
+        isInvalid: true,
+        errorMsg: t('name.msg.character'),
       };
     }
 
@@ -81,7 +108,49 @@ const Index: React.FC<Props> = ({ callback }) => {
     setFormData({
       ...formData,
     });
+    if (!bol) {
+      const errObj = Object.keys(formData).filter(
+        (key) => formData[key].isInvalid,
+      );
+      const ele = document.getElementById(errObj[0]);
+      scrollToElementTop(ele);
+    }
     return bol;
+  };
+
+  const legalClick = useLegalClick();
+
+  const handleRegister = (event?: any) => {
+    if (event) {
+      event.preventDefault();
+    }
+    const reqParams: RegisterReqParams = {
+      name: formData.name.value,
+      e_mail: formData.e_mail.value,
+      pass: formData.pass.value,
+    };
+
+    const captcha = emailCaptcha?.getCaptcha();
+    if (captcha?.verify) {
+      reqParams.captcha_code = captcha.captcha_code;
+      reqParams.captcha_id = captcha.captcha_id;
+    }
+
+    register(reqParams)
+      .then(async (res) => {
+        await emailCaptcha?.close();
+        updateUser(res);
+        callback();
+      })
+      .catch((err) => {
+        if (err.isError) {
+          emailCaptcha?.handleCaptchaError(err.list);
+          const data = handleFormError(err, formData);
+          setFormData({ ...data });
+          const ele = document.getElementById(err.list[0].error_field);
+          scrollToElementTop(ele);
+        }
+      });
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -90,26 +159,17 @@ const Index: React.FC<Props> = ({ callback }) => {
     if (!checkValidated()) {
       return;
     }
-    register({
-      name: formData.name.value,
-      e_mail: formData.e_mail.value,
-      pass: formData.pass.value,
-    })
-      .then((res) => {
-        updateUser(res);
-        callback();
-      })
-      .catch((err) => {
-        if (err.isError && err.key) {
-          formData[err.key].isInvalid = true;
-          formData[err.key].errorMsg = err.value;
-        }
-        setFormData({ ...formData });
-      });
+    if (!emailCaptcha) {
+      handleRegister();
+      return;
+    }
+    emailCaptcha.check(() => {
+      handleRegister();
+    });
   };
 
   return (
-    <Col className="mx-auto" md={3}>
+    <>
       <Form noValidate onSubmit={handleSubmit} autoComplete="off">
         <Form.Group controlId="name" className="mb-3">
           <Form.Label>{t('name.label')}</Form.Label>
@@ -162,7 +222,6 @@ const Index: React.FC<Props> = ({ callback }) => {
             autoComplete="off"
             required
             type="password"
-            maxLength={32}
             isInvalid={formData.pass.isInvalid}
             value={formData.pass.value}
             onChange={(e) =>
@@ -186,13 +245,30 @@ const Index: React.FC<Props> = ({ callback }) => {
           </Button>
         </div>
       </Form>
-
-      <div className="text-center mt-5">
-        <Trans i18nKey="login.info_login" ns="translation">
-          Already have an account? <Link to="/users/login">Log in</Link>
+      <div className="text-center small mt-3">
+        <Trans i18nKey="login.agreements" ns="translation">
+          By registering, you agree to the
+          <Link
+            to="/privacy"
+            onClick={(evt) => {
+              legalClick(evt, 'privacy');
+            }}
+            target="_blank">
+            privacy policy
+          </Link>
+          and
+          <Link
+            to="/tos"
+            onClick={(evt) => {
+              legalClick(evt, 'tos');
+            }}
+            target="_blank">
+            terms of service
+          </Link>
+          .
         </Trans>
       </div>
-    </Col>
+    </>
   );
 };
 

@@ -1,8 +1,29 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import { memo } from 'react';
 import { Accordion, ListGroup } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 
-import { Icon } from '@answer/components';
+import { Icon } from '@/components';
+import { pathFactory } from '@/router/pathFactory';
 
 import './index.scss';
 
@@ -25,32 +46,42 @@ const SearchQuestion = ({ similarQuestions }) => {
               return (
                 <ListGroup.Item
                   action
-                  as="a"
-                  className="link-dark"
+                  as={Link}
+                  className="link-dark text-wrap text-break"
                   key={item.id}
-                  href={`/questions/${item.id}`}
+                  to={pathFactory.questionLanding(item.id, item.url_title)}
                   target="_blank">
-                  <span className="text-wrap text-break">
+                  <span
+                    className={`${
+                      item.accepted_answer || item.answer_count > 0
+                        ? 'me-3'
+                        : ''
+                    }`}>
                     {item.title}
                     {item.status === 'closed'
-                      ? ` [${t('closed', { keyPrefix: 'question' })}]`
+                      ? ` [${t('closed', { keyPrefix: 'question' })}] `
                       : null}
                   </span>
+
                   {item.accepted_answer ? (
-                    <span className="ms-3 text-success">
+                    <span className="small text-success d-inline-block">
                       <Icon type="bi" name="check-circle-fill" />
-                      <span className="ms-1">{item.answer_count}</span>
+                      <span className="ms-1">
+                        {t('x_answers', {
+                          keyPrefix: 'question',
+                          count: item.answer_count,
+                        })}
+                      </span>
                     </span>
                   ) : (
                     item.answer_count > 0 && (
-                      <span className="ms-3">
-                        <Icon
-                          type="bi"
-                          name="chat-square-text-fill"
-                          className="text-secondary"
-                        />
-                        <span className="ms-1 text-primary">
-                          {item.answer_count}
+                      <span className="small text-secondary d-inline-block">
+                        <Icon type="bi" name="chat-square-text-fill" />
+                        <span className="ms-1">
+                          {t('x_answers', {
+                            keyPrefix: 'question',
+                            count: item.answer_count,
+                          })}
                         </span>
                       </span>
                     )

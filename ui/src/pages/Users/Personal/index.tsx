@@ -1,15 +1,36 @@
-import { FC } from 'react';
-import { Container, Row, Col, Button } from 'react-bootstrap';
-import { useTranslation } from 'react-i18next';
-import { useParams, useSearchParams } from 'react-router-dom';
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
-import { Pagination, FormatTime, PageTitle, Empty } from '@answer/components';
-import { userInfoStore } from '@answer/stores';
+import { FC } from 'react';
+import { Row, Col } from 'react-bootstrap';
+import { useTranslation } from 'react-i18next';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
+
+import { usePageTags } from '@/hooks';
+import { Pagination, FormatTime, Empty } from '@/components';
+import { loggedUserInfoStore } from '@/stores';
 import {
   usePersonalInfoByName,
   usePersonalTop,
   usePersonalListByTabName,
-} from '@answer/api';
+} from '@/services';
+import type { UserInfoRes } from '@/common/interface';
 
 import {
   UserInfo,
@@ -22,6 +43,7 @@ import {
   Comments,
   Answers,
   Votes,
+  Badges,
 } from './components';
 
 const Personal: FC = () => {
@@ -30,7 +52,7 @@ const Personal: FC = () => {
   const page = searchParams.get('page') || 1;
   const order = searchParams.get('order') || 'newest';
   const { t } = useTranslation('translation', { keyPrefix: 'personal' });
-  const sessionUser = userInfoStore((state) => state.user);
+  const sessionUser = loggedUserInfoStore((state) => state.user);
   const isSelf = sessionUser?.username === username;
 
   const { data: userInfo } = usePersonalInfoByName(username);
@@ -45,51 +67,46 @@ const Personal: FC = () => {
     },
     tabName,
   );
-  let pageTitle = '';
-  if (userInfo) {
-    pageTitle = `${userInfo.info.display_name} (${userInfo.info.username})`;
-  }
   const { count = 0, list = [] } = listData?.[tabName] || {};
-  return (
-    <Container className="pt-4 mt-2 mb-5">
-      <PageTitle title={pageTitle} />
-      <Row className="justify-content-center">
-        {userInfo?.info?.status !== 'normal' && userInfo?.info?.status_msg && (
-          <Alert data={userInfo?.info.status_msg} />
-        )}
-        <Col xxl={7} lg={8} sm={12}>
-          <UserInfo data={userInfo?.info} />
-        </Col>
-        <Col
-          xxl={3}
-          lg={4}
-          sm={12}
-          className="d-flex justify-content-end mt-5 mt-lg-0">
-          {isSelf && (
-            <div>
-              <Button
-                variant="outline-secondary"
-                href="/users/settings/profile"
-                className="btn">
-                {t('edit_profile')}
-              </Button>
-            </div>
-          )}
-        </Col>
-      </Row>
 
-      <Row className="justify-content-center">
-        <Col lg={10}>
+  let pageTitle = '';
+  if (userInfo?.username) {
+    pageTitle = `${userInfo?.display_name} (${userInfo?.username})`;
+  }
+  usePageTags({
+    title: pageTitle,
+  });
+
+  return (
+    <div className="pt-4 mb-5">
+      <Row>
+        <Col>
+          {userInfo?.status !== 'normal' && userInfo?.status_msg && (
+            <Alert data={userInfo?.status_msg} />
+          )}
+          <div className="d-md-flex d-block flex-wrap justify-content-between">
+            <UserInfo data={userInfo as UserInfoRes} />
+            {isSelf && (
+              <div className="mb-3">
+                <Link
+                  className="btn btn-outline-secondary"
+                  to="/users/settings/profile">
+                  {t('edit_profile')}
+                </Link>
+              </div>
+            )}
+          </div>
           <NavBar tabName={tabName} slug={username} isSelf={isSelf} />
-        </Col>
-        <Col xxl={7} lg={8} sm={12}>
+
           <Overview
             visible={tabName === 'overview'}
-            introduction={userInfo?.info?.bio_html}
+            introduction={userInfo?.bio_html || ''}
             data={topData}
+            username={username}
           />
+
           <ListHead
-            count={tabName === 'reputation' ? userInfo?.info?.rank : count}
+            count={tabName === 'reputation' ? Number(userInfo?.rank) : count}
             sort={order}
             visible={tabName !== 'overview'}
             tabName={tabName}
@@ -103,10 +120,15 @@ const Personal: FC = () => {
           <Reputation data={list} visible={tabName === 'reputation'} />
           <Comments data={list} visible={tabName === 'comments'} />
           <Votes data={list} visible={tabName === 'votes'} />
+          <Badges
+            data={list}
+            visible={tabName === 'badges'}
+            username={username}
+          />
           {!list?.length && !isLoading && <Empty />}
 
           {count > 0 && (
-            <div className="d-flex justify-content-center border-top py-4">
+            <div className="d-flex justify-content-center py-4">
               <Pagination
                 pageSize={30}
                 totalSize={count || 0}
@@ -114,28 +136,25 @@ const Personal: FC = () => {
               />
             </div>
           )}
-        </Col>
-        <Col xxl={3} lg={4} sm={12} className="mt-5 mt-lg-0">
-          <h5 className="mb-3">{t('stats')}</h5>
-          {userInfo?.info && (
+
+          {tabName === 'overview' && (
             <>
-              <div className="text-secondary">
-                <FormatTime
-                  time={userInfo.info.created_at}
-                  preFix={t('joined')}
-                />
-              </div>
-              <div className="text-secondary">
-                <FormatTime
-                  time={userInfo.info.last_login_date}
-                  preFix={t('last_login')}
-                />
-              </div>
+              <h5 className="mb-3">{t('stats')}</h5>
+              {userInfo?.created_at && (
+                <div className="text-secondary">
+                  <FormatTime time={userInfo.created_at} preFix={t('joined')} />
+                  {t('comma')}{' '}
+                  <FormatTime
+                    time={userInfo.last_login_date}
+                    preFix={t('last_login')}
+                  />
+                </div>
+              )}
             </>
           )}
         </Col>
       </Row>
-    </Container>
+    </div>
   );
 };
 export default Personal;

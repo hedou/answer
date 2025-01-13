@@ -1,181 +1,158 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import { FC } from 'react';
-import { Row, Col, ListGroup } from 'react-bootstrap';
-import { NavLink, useParams, useSearchParams } from 'react-router-dom';
+import { ListGroup } from 'react-bootstrap';
+import { NavLink, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-import { useQuestionList } from '@answer/api';
-import type * as Type from '@answer/common/interface';
+import { pathFactory } from '@/router/pathFactory';
 import {
-  Icon,
   Tag,
   Pagination,
   FormatTime,
   Empty,
   BaseUserCard,
   QueryGroup,
-} from '@answer/components';
+  QuestionListLoader,
+  Counts,
+  Icon,
+} from '@/components';
+import * as Type from '@/common/interface';
+import { useSkeletonControl } from '@/hooks';
 
-const QuestionOrderKeys: Type.QuestionOrderBy[] = [
+export const QUESTION_ORDER_KEYS: Type.QuestionOrderBy[] = [
   'newest',
   'active',
+  'unanswered',
+  'recommend',
   'frequent',
   'score',
-  'unanswered',
 ];
-
 interface Props {
-  source: 'questions' | 'tag';
+  source: 'questions' | 'tag' | 'linked';
+  order?: Type.QuestionOrderBy;
+  data;
+  orderList?: Type.QuestionOrderBy[];
+  isLoading: boolean;
 }
 
-const QuestionLastUpdate = ({ q }) => {
+const QuestionList: FC<Props> = ({
+  source,
+  order,
+  data,
+  orderList,
+  isLoading = false,
+}) => {
   const { t } = useTranslation('translation', { keyPrefix: 'question' });
-  if (q.update_time > q.edit_time) {
-    // question answered
-    return (
-      <div className="d-flex">
-        <BaseUserCard
-          data={q.last_answered_user_info}
-          showAvatar={false}
-          className="me-1"
-        />
-        •
-        <FormatTime
-          time={q.update_time}
-          className="text-secondary mx-1"
-          preFix={t('answered')}
-        />
-      </div>
-    );
-  }
-
-  if (q.edit_time > q.update_time) {
-    // question modified
-    return (
-      <div className="d-flex">
-        <BaseUserCard
-          data={q.update_user_info}
-          showAvatar={false}
-          className="me-1"
-        />
-        •
-        <FormatTime
-          time={q.edit_time}
-          className="text-secondary mx-1"
-          preFix={t('modified')}
-        />
-      </div>
-    );
-  }
-
-  // default: asked
-  return (
-    <div className="d-flex">
-      <BaseUserCard data={q.user_info} showAvatar={false} className="me-1" />
-      •
-      <FormatTime
-        time={q.create_time}
-        preFix={t('asked')}
-        className="text-secondary mx-1"
-      />
-    </div>
-  );
-};
-
-const QuestionList: FC<Props> = ({ source }) => {
-  const { t } = useTranslation('translation', { keyPrefix: 'question' });
-  const { tagName = '' } = useParams();
   const [urlSearchParams] = useSearchParams();
-  const curOrder = urlSearchParams.get('order') || QuestionOrderKeys[0];
+  const { isSkeletonShow } = useSkeletonControl(isLoading);
+  const curOrder =
+    order || urlSearchParams.get('order') || QUESTION_ORDER_KEYS[0];
   const curPage = Number(urlSearchParams.get('page')) || 1;
   const pageSize = 20;
-  const reqParams: Type.QueryQuestionsReq = {
-    page_size: pageSize,
-    page: curPage,
-    order: curOrder as Type.QuestionOrderBy,
-    tags: [tagName],
-  };
-
-  if (source === 'questions') {
-    delete reqParams.tags;
-  }
-  const { data: listData, isLoading } = useQuestionList(reqParams);
-  const count = listData?.count || 0;
+  const count = data?.count || 0;
+  const orderKeys = orderList || QUESTION_ORDER_KEYS;
 
   return (
     <div>
-      <Row className="mb-3">
-        <Col className="d-flex align-items-center">
-          <h5 className="fs-5 text-nowrap mb-3 mb-md-0">
-            {source === 'questions'
-              ? t('all_questions')
-              : t('x_questions', { count })}
-          </h5>
-        </Col>
-        <Col>
-          <QueryGroup
-            data={QuestionOrderKeys}
-            currentSort={curOrder}
-            i18nKeyPrefix="question"
-          />
-        </Col>
-      </Row>
-      <ListGroup variant="flush" className="border-top border-bottom-0">
-        {listData?.list?.map((li) => {
-          return (
-            <ListGroup.Item
-              key={li.id}
-              className="border-bottom pt-3 pb-2 px-0">
-              <h5 className="text-wrap text-break">
-                <NavLink to={`/questions/${li.id}`} className="link-dark">
-                  {li.title}
-                  {li.status === 2 ? ` [${t('closed')}]` : ''}
-                </NavLink>
-              </h5>
-              <div className="d-flex flex-column flex-md-row align-items-md-center fs-14 text-secondary">
-                <QuestionLastUpdate q={li} />
-                <div className="ms-0 ms-md-3 mt-2 mt-md-0">
-                  <span>
-                    <Icon name="hand-thumbs-up-fill" />
-                    <em className="fst-normal mx-1">{li.vote_count}</em>
-                  </span>
-                  <span
-                    className={`ms-3 ${
-                      li.accepted_answer_id >= 1 ? 'text-success' : ''
-                    }`}>
+      <div className="mb-3 d-flex flex-wrap justify-content-between">
+        <h5 className="fs-5 text-nowrap mb-3 mb-md-0">
+          {source === 'questions'
+            ? t('all_questions')
+            : t('x_questions', { count })}
+        </h5>
+        <QueryGroup
+          data={orderKeys}
+          currentSort={curOrder}
+          pathname={source === 'questions' ? '/questions' : ''}
+          i18nKeyPrefix="question"
+          maxBtnCount={source === 'tag' ? 3 : 4}
+        />
+      </div>
+      <ListGroup className="rounded-0">
+        {isSkeletonShow ? (
+          <QuestionListLoader />
+        ) : (
+          data?.list?.map((li) => {
+            return (
+              <ListGroup.Item
+                key={li.id}
+                className="bg-transparent py-3 px-0 border-start-0 border-end-0">
+                <h5 className="text-wrap text-break">
+                  {li.pin === 2 && (
                     <Icon
-                      name={
-                        li.accepted_answer_id >= 1
-                          ? 'check-circle-fill'
-                          : 'chat-square-text-fill'
+                      name="pin-fill"
+                      className="me-1"
+                      title={t('pinned', { keyPrefix: 'btns' })}
+                    />
+                  )}
+                  <NavLink
+                    to={pathFactory.questionLanding(li.id, li.url_title)}
+                    className="link-dark">
+                    {li.title}
+                    {li.status === 2 ? ` [${t('closed')}]` : ''}
+                  </NavLink>
+                </h5>
+                <div className="d-flex flex-wrap flex-column flex-md-row align-items-md-center small mb-2 text-secondary">
+                  <div className="d-flex flex-wrap me-0 me-md-3">
+                    <BaseUserCard
+                      data={li.operator}
+                      showAvatar={false}
+                      className="me-1"
+                    />
+                    •
+                    <FormatTime
+                      time={
+                        curOrder === 'active' ? li.operated_at : li.created_at
+                      }
+                      className="text-secondary ms-1 flex-shrink-0"
+                      preFix={
+                        curOrder === 'active'
+                          ? t(li.operation_type)
+                          : t('asked')
                       }
                     />
-                    <em className="fst-normal mx-1">{li.answer_count}</em>
-                  </span>
-                  <span className="summary-stat ms-3">
-                    <Icon name="eye-fill" />
-                    <em className="fst-normal mx-1">{li.view_count}</em>
-                  </span>
+                  </div>
+                  <Counts
+                    data={{
+                      votes: li.vote_count,
+                      answers: li.answer_count,
+                      views: li.view_count,
+                    }}
+                    isAccepted={li.accepted_answer_id >= 1}
+                    className="mt-2 mt-md-0"
+                  />
                 </div>
-              </div>
-              <div className="question-tags mx-n1 mt-2">
-                {Array.isArray(li.tags)
-                  ? li.tags.map((tag) => {
-                      return (
-                        <Tag
-                          key={tag.slug_name}
-                          className="m-1"
-                          href={`/tags/${
-                            tag.main_tag_slug_name || tag.slug_name
-                          }`}>
-                          {tag.slug_name}
-                        </Tag>
-                      );
-                    })
-                  : null}
-              </div>
-            </ListGroup.Item>
-          );
-        })}
+                <div className="question-tags m-n1">
+                  {Array.isArray(li.tags)
+                    ? li.tags.map((tag) => {
+                        return (
+                          <Tag key={tag.slug_name} className="m-1" data={tag} />
+                        );
+                      })
+                    : null}
+                </div>
+              </ListGroup.Item>
+            );
+          })
+        )}
       </ListGroup>
       {count <= 0 && !isLoading && <Empty />}
       <div className="mt-4 mb-2 d-flex justify-content-center">
@@ -183,7 +160,7 @@ const QuestionList: FC<Props> = ({ source }) => {
           currentPage={curPage}
           totalSize={count}
           pageSize={pageSize}
-          pathname="/questions"
+          pathname={source === 'questions' ? '/questions' : ''}
         />
       </div>
     </div>

@@ -1,8 +1,28 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import React, { FC } from 'react';
 import { Button, Modal } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
 export interface Props {
+  id?: string;
   /** header title */
   title?: string;
   children?: React.ReactNode;
@@ -24,6 +44,7 @@ export interface Props {
   className?: string;
 }
 const Index: FC<Props> = ({
+  id = '',
   title = 'title',
   visible = false,
   centered = true,
@@ -44,6 +65,7 @@ const Index: FC<Props> = ({
   const { t } = useTranslation();
   return (
     <Modal
+      id={id}
       className={className}
       scrollable={scrollable}
       show={visible}
@@ -60,7 +82,9 @@ const Index: FC<Props> = ({
         <Modal.Footer>
           {showCancel && (
             <Button variant={cancelBtnVariant} onClick={onCancel}>
-              {cancelText || t('btns.cancel')}
+              {cancelText === 'close'
+                ? t('btns.close')
+                : cancelText || t('btns.cancel')}
             </Button>
           )}
           {showConfirm && (
@@ -71,7 +95,9 @@ const Index: FC<Props> = ({
               }}
               id="ok_button"
               disabled={confirmBtnDisabled}>
-              {confirmText || t('btns.confirm')}
+              {confirmText === 'OK'
+                ? t('btns.ok')
+                : confirmText || t('btns.confirm')}
             </Button>
           )}
         </Modal.Footer>

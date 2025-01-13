@@ -1,3 +1,22 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package entity
 
 import "time"
@@ -37,14 +56,16 @@ type User struct {
 	Status         int       `xorm:"not null default 1 INT(11) status"`
 	AuthorityGroup int       `xorm:"not null default 1 INT(11) authority_group"`
 	DisplayName    string    `xorm:"not null default '' VARCHAR(30) display_name"`
-	Avatar         string    `xorm:"not null default '' VARCHAR(255) avatar"`
+	Avatar         string    `xorm:"not null default '' VARCHAR(1024) avatar"`
 	Mobile         string    `xorm:"not null VARCHAR(20) mobile"`
 	Bio            string    `xorm:"not null TEXT bio"`
-	BioHtml        string    `xorm:"not null TEXT bio_html"`
+	BioHTML        string    `xorm:"not null TEXT bio_html"`
 	Website        string    `xorm:"not null default '' VARCHAR(255) website"`
 	Location       string    `xorm:"not null default '' VARCHAR(100) location"`
 	IPInfo         string    `xorm:"not null default '' VARCHAR(255) ip_info"`
 	IsAdmin        bool      `xorm:"not null default false BOOL is_admin"`
+	Language       string    `xorm:"not null default '' VARCHAR(100) language"`
+	ColorScheme    string    `xorm:"not null default '' VARCHAR(100) color_scheme"`
 }
 
 // TableName user table name
@@ -54,6 +75,6 @@ func (User) TableName() string {
 
 type UserSearch struct {
 	User
-	Page     int `json:"page" form:"page"`           //Query number of pages
-	PageSize int `json:"page_size" form:"page_size"` //Search page size
+	Page     int `json:"page" form:"page"`           // Query number of pages
+	PageSize int `json:"page_size" form:"page_size"` // Search page size
 }

@@ -1,18 +1,33 @@
-import { FC, useState, memo } from 'react';
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import { useState, memo } from 'react';
 import { Dropdown } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
 import ToolItem from '../toolItem';
 import { IEditorContext } from '../types';
 
-const Heading: FC<IEditorContext> = (context) => {
+let context: IEditorContext;
+const Heading = () => {
   const { t } = useTranslation('translation', { keyPrefix: 'editor' });
   const headerList = [
-    {
-      text: `<h1 class="mb-0 h3">${t('heading.options.h1')}</h1>`,
-      level: 1,
-      label: t('heading.options.h1'),
-    },
     {
       text: `<h2 class="mb-0 h4">${t('heading.options.h2')}</h2>`,
       level: 2,
@@ -29,7 +44,7 @@ const Heading: FC<IEditorContext> = (context) => {
       label: t('heading.options.h4'),
     },
     {
-      text: `<h5 class="mb-0 fs-14">${t('heading.options.h5')}</h5>`,
+      text: `<h5 class="mb-0 small">${t('heading.options.h5')}</h5>`,
       level: 5,
       label: t('heading.options.h5'),
     },
@@ -40,9 +55,9 @@ const Heading: FC<IEditorContext> = (context) => {
     },
   ];
   const item = {
-    label: 'heading',
-    keyMap: ['Ctrl-H'],
-    tip: `${t('heading.text')} (Ctrl+H)`,
+    label: 'type-h2',
+    keyMap: ['Ctrl-h'],
+    tip: `${t('heading.text')} (Ctrl+h)`,
   };
   const [isShow, setShowState] = useState(false);
   const [isLocked, setLockState] = useState(false);
@@ -57,7 +72,8 @@ const Heading: FC<IEditorContext> = (context) => {
     }, level + 1);
     setShowState(false);
   };
-  const onAddHeader = () => {
+  const onAddHeader = (ctx) => {
+    context = ctx;
     if (isLocked) {
       return;
     }

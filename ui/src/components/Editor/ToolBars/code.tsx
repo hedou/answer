@@ -1,4 +1,23 @@
-import { FC, useEffect, useRef, useState, memo } from 'react';
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import { useEffect, useRef, useState, memo } from 'react';
 import { Button, Form, Modal } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
@@ -130,13 +149,15 @@ const codeLanguageType = [
   'yaml',
   'yml',
 ];
-const Code: FC<IEditorContext> = ({ editor, wrapText }) => {
+
+let context: IEditorContext;
+const Code = () => {
   const { t } = useTranslation('translation', { keyPrefix: 'editor' });
 
   const item = {
-    label: 'code',
-    keyMap: ['Ctrl-K'],
-    tip: `${t('code.text')} (Ctrl+K)`,
+    label: 'code-slash',
+    keyMap: ['Ctrl-k'],
+    tip: `${t('code.text')} (Ctrl+k)`,
   };
 
   const [code, setCode] = useState({
@@ -149,11 +170,12 @@ const Code: FC<IEditorContext> = ({ editor, wrapText }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const SINGLELINEMAXLENGTH = 40;
-  const addCode = () => {
-    if (!editor) {
-      return;
-    }
-    const text = editor.getSelection();
+  const addCode = (ctx) => {
+    context = ctx;
+
+    const { wrapText, editor } = context;
+
+    const text = context.editor.getSelection();
 
     if (!text) {
       setVisible(true);
@@ -161,7 +183,7 @@ const Code: FC<IEditorContext> = ({ editor, wrapText }) => {
       return;
     }
     if (text.length > SINGLELINEMAXLENGTH) {
-      wrapText('```\n', '\n```');
+      context.wrapText('```\n', '\n```');
     } else {
       wrapText('`', '`');
     }
@@ -175,9 +197,6 @@ const Code: FC<IEditorContext> = ({ editor, wrapText }) => {
   }, [visible]);
 
   const handleClick = () => {
-    if (!editor) {
-      return;
-    }
     if (!code.value.trim()) {
       setCode({
         ...code,
@@ -197,7 +216,7 @@ const Code: FC<IEditorContext> = ({ editor, wrapText }) => {
     } else {
       value = `\`${code.value}\``;
     }
-    editor.replaceSelection(value);
+    context.editor.replaceSelection(value);
     setCode({
       value: '',
       isInvalid: false,
@@ -207,7 +226,7 @@ const Code: FC<IEditorContext> = ({ editor, wrapText }) => {
     setVisible(false);
   };
   const onHide = () => setVisible(false);
-  const onExited = () => editor?.focus();
+  const onExited = () => context.editor?.focus();
 
   return (
     <ToolItem {...item} onClick={addCode}>
@@ -239,7 +258,12 @@ const Code: FC<IEditorContext> = ({ editor, wrapText }) => {
             )}
           </Form.Group>
           <Form.Group controlId="editor.codeLanguageType" className="mb-3">
-            <Form.Label>{t('code.form.fields.language.label')}</Form.Label>
+            <Form.Label>{`${t('code.form.fields.language.label')} ${t(
+              'optional',
+              {
+                keyPrefix: 'form',
+              },
+            )}`}</Form.Label>
             <Select
               options={codeLanguageType}
               value={lang}

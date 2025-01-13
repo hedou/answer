@@ -1,6 +1,30 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 @import 'common/variable';
 @import '~bootstrap/scss/bootstrap';
 @import '~bootstrap-icons';
+@import 'common/color';
+
+.bg-gray-300 {
+  background-color: var(--an-gray-300);
+}
 
 .focus {
   color: $input-focus-color !important;
@@ -14,10 +38,6 @@
   }
 }
 
-:root {
-  overflow-y: scroll;
-}
-
 html,
 body {
   padding: 0;
@@ -26,16 +46,22 @@ body {
 a {
   text-decoration: none;
 }
+// If the image does not have a `src` attribute, it must break and may not trigger the `onerror` event.
+// With or without the `alt` attribute, it is visually hidden directly.
+img[src=""] {
+  visibility: hidden !important;
+}
 
 .btn-link {
   text-decoration: none;
 }
 
-.fs-14 {
-  font-size: 0.875rem;
-}
 .fs-12 {
   font-size: 0.75rem;
+}
+
+.small {
+  font-size: 0.875rem;
 }
 
 .pic-auth-modal {
@@ -53,7 +79,7 @@ a {
   height: 18px;
   border-radius: 50%;
   position: absolute;
-  left: 20px;
+  left: 15px;
   top: 0;
   border: 1px solid #fff;
 }
@@ -61,12 +87,26 @@ a {
 .badge-tag {
   display: inline-block;
   font-size: 14px;
-  background: rgba($blue-100, 0.5);
-  padding: 1px 0.5rem 2px;
-  color: $blue-700;
-  height: 24px;
+  background: $gray-200;
+  padding: 0 7px 1px;
+  color: $gray-700;
+  font-weight: 400;
+  border: 1px solid transparent;
   &:hover {
-    background: rgba($blue-100, 1);
+    background: $gray-300;
+  }
+}
+
+.badge-tag-required {
+  font-weight: 700;
+}
+
+.badge-tag-reserved {
+  background: $orange-100;
+  color: $orange-700;
+  border: 1px solid transparent;
+  &:hover {
+    background: $orange-200;
   }
 }
 
@@ -74,8 +114,19 @@ a {
   border-bottom: 1px solid rgba(33, 37, 41, 0.25);
 }
 
-.page-wrap {
-  min-height: calc(100vh - 148px);
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+#root > footer {
+  margin-top: auto !important;
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.bg-f5 {
+  background-color: var(--an-f5);
 }
 
 .btn-no-border,
@@ -101,6 +152,13 @@ a {
     content: '\2022';
     color: #6c757d;
   }
+}
+
+.name-ellipsis {
+  display: inline-block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .text-truncate-1,
@@ -134,7 +192,13 @@ a {
 }
 
 .warning {
-  background-color: #fff3cd80;
+  background-color: var(--an-inbox-warning);
+}
+
+.fit-content {
+  height: fit-content;
+  width: fit-content;
+  flex: none;
 }
 
 // fix bug for React-Bootstrap Form.Text
@@ -142,9 +206,6 @@ a {
   display: inline-block;
 }
 
-.object-fit-contain {
-  object-fit: contain;
-}
 .fmt {
   width: 100%;
   h1 {
@@ -164,7 +225,7 @@ a {
     margin-top: 2rem;
   }
   h5 {
-    @extend .fs-14;
+    @extend .small;
     margin-top: 2rem;
   }
   h6 {
@@ -174,30 +235,124 @@ a {
   img {
     max-width: 100%;
   }
+  video {
+    max-width: 100%;
+  }
   p {
-    word-break: break-all;
     > code {
-      background-color: #e9ecef;
-      color: #212529;
+      background-color: var(--an-e9ecef);
+      color: var(--an-212529);
       padding: 2px 4px;
       border-radius: 0.25rem;
     }
   }
   pre {
-    background-color: #e9ecef;
+    background-color: var(--an-e9ecef);
     border-radius: 0.25rem;
     padding: 1rem;
+    max-height: 38rem;
   }
   blockquote {
     border-left: 0.25rem solid #ced4da;
     padding: 1rem;
     color: #6c757d;
-    background-color: #e9ecef;
+    background-color: var(--an-e9ecef);
     p {
-      color: $body-color;
+      color: var(--bs-body-color);
     }
     > p:last-child {
       margin-bottom: 0;
     }
   }
+  table {
+    td,
+    th {
+      word-break: initial;
+    }
+  }
+  ol ol,ol ul,ul ol,ul ul {
+    margin-bottom: 1rem;
+  }
+}
+
+.upload-img-wrap {
+  flex-grow: 1;
+  height: 128px;
+}
+
+.review-text-delete {
+  color: #842029;
+  background-color: #f8d7da;
+  text-decoration: line-through;
+  .review-text-add {
+    text-decoration: none;
+  }
+}
+
+.review-text-add {
+  color: #0f5132;
+  background-color: #d1e7dd;
+  text-decoration: none !important;
+}
+
+.rotate-90-deg {
+  display: inline-block;
+  transform: rotate(90deg);
+  transition: transform 0.2s;
+}
+.rotate-0-deg {
+  display: inline-block;
+  transform: rotate(0deg);
+  transition: transform 0.2s;
+}
+
+.pre-line {
+  white-space: pre-wrap;
+}
+
+.reset-p {
+  p {
+    margin-bottom: 0;
+  }
+}
+
+@keyframes bg-fade-out {
+  0%,
+  25% {
+    background-color: var(--bs-highlight-bg);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.bg-fade-out {
+  animation: bg-fade-out 2s ease 0.3s;
+}
+
+
+.btnSvg, .btnSvg:hover {
+  display: inline-block;
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  vertical-align: -0.125em;
+}
+
+.max-width-200 {
+  max-width: 200px;
+}
+
+.alert-exist {
+  color: var(--an-alert-exist-color);
+}
+
+.bronze {
+  color: #CD7F32;
+}
+.silver {
+  color: #C0C0C0;
+}
+.gold {
+  color: #FFD700;
 }

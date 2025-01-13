@@ -1,16 +1,37 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package collection
 
 import (
 	"context"
-
-	"github.com/answerdev/answer/internal/base/constant"
-	"github.com/answerdev/answer/internal/base/data"
-	"github.com/answerdev/answer/internal/base/pager"
-	"github.com/answerdev/answer/internal/base/reason"
-	"github.com/answerdev/answer/internal/entity"
-	collectioncommon "github.com/answerdev/answer/internal/service/collection_common"
-	"github.com/answerdev/answer/internal/service/unique"
+	"github.com/apache/answer/internal/base/constant"
+	"github.com/apache/answer/internal/base/data"
+	"github.com/apache/answer/internal/base/handler"
+	"github.com/apache/answer/internal/base/pager"
+	"github.com/apache/answer/internal/base/reason"
+	"github.com/apache/answer/internal/entity"
+	collectioncommon "github.com/apache/answer/internal/service/collection_common"
+	"github.com/apache/answer/internal/service/unique"
+	"github.com/apache/answer/pkg/uid"
 	"github.com/segmentfault/pacman/errors"
+	"xorm.io/xorm"
 )
 
 // collectionRepo collection repository
@@ -29,20 +50,39 @@ func NewCollectionRepo(data *data.Data, uniqueIDRepo unique.UniqueIDRepo) collec
 
 // AddCollection add collection
 func (cr *collectionRepo) AddCollection(ctx context.Context, collection *entity.Collection) (err error) {
-	id, err := cr.uniqueIDRepo.GenUniqueIDStr(ctx, collection.TableName())
-	if err == nil {
-		collection.ID = id
-		_, err = cr.data.DB.Insert(collection)
-		if err != nil {
-			return errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	collection.ID, err = cr.uniqueIDRepo.GenUniqueIDStr(ctx, collection.TableName())
+	if err != nil {
+		return errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	}
+
+	_, err = cr.data.DB.Transaction(func(session *xorm.Session) (result any, err error) {
+		session = session.Context(ctx)
+		old := &entity.Collection{
+			UserID:   collection.UserID,
+			ObjectID: collection.ObjectID,
 		}
+		exist, err := session.ForUpdate().Get(old)
+		if err != nil {
+			return nil, err
+		}
+		if exist {
+			return nil, nil
+		}
+		_, err = session.Insert(collection)
+		if err != nil {
+			return nil, err
+		}
+		return
+	})
+	if err != nil {
+		return errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
 	return nil
 }
 
 // RemoveCollection delete collection
 func (cr *collectionRepo) RemoveCollection(ctx context.Context, id string) (err error) {
-	_, err = cr.data.DB.Where("id =?", id).Delete(&entity.Collection{})
+	_, err = cr.data.DB.Context(ctx).Where("id = ?", id).Delete(&entity.Collection{})
 	if err != nil {
 		return errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
@@ -51,14 +91,14 @@ func (cr *collectionRepo) RemoveCollection(ctx context.Context, id string) (err 
 
 // UpdateCollection update collection
 func (cr *collectionRepo) UpdateCollection(ctx context.Context, collection *entity.Collection, cols []string) (err error) {
-	_, err = cr.data.DB.ID(collection.ID).Cols(cols...).Update(collection)
+	_, err = cr.data.DB.Context(ctx).ID(collection.ID).Cols(cols...).Update(collection)
 	return errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 }
 
 // GetCollection get collection one
 func (cr *collectionRepo) GetCollection(ctx context.Context, id int) (collection *entity.Collection, exist bool, err error) {
 	collection = &entity.Collection{}
-	exist, err = cr.data.DB.ID(id).Get(collection)
+	exist, err = cr.data.DB.Context(ctx).ID(id).Get(collection)
 	if err != nil {
 		return nil, false, errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
@@ -68,15 +108,15 @@ func (cr *collectionRepo) GetCollection(ctx context.Context, id int) (collection
 // GetCollectionList get collection list all
 func (cr *collectionRepo) GetCollectionList(ctx context.Context, collection *entity.Collection) (collectionList []*entity.Collection, err error) {
 	collectionList = make([]*entity.Collection, 0)
-	err = cr.data.DB.Find(collectionList, collection)
+	err = cr.data.DB.Context(ctx).Find(collectionList, collection)
 	err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	return
 }
 
 // GetOneByObjectIDAndUser get one by object TagID and user
-func (cr *collectionRepo) GetOneByObjectIDAndUser(ctx context.Context, userId string, objectId string) (collection *entity.Collection, exist bool, err error) {
+func (cr *collectionRepo) GetOneByObjectIDAndUser(ctx context.Context, userID string, objectID string) (collection *entity.Collection, exist bool, err error) {
 	collection = &entity.Collection{}
-	exist, err = cr.data.DB.Where("user_id = ? and object_id = ?", userId, objectId).Get(collection)
+	exist, err = cr.data.DB.Context(ctx).Where("user_id = ? and object_id = ?", userID, objectID).Get(collection)
 	if err != nil {
 		return nil, false, errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
@@ -84,9 +124,9 @@ func (cr *collectionRepo) GetOneByObjectIDAndUser(ctx context.Context, userId st
 }
 
 // SearchByObjectIDsAndUser search by object IDs and user
-func (cr *collectionRepo) SearchByObjectIDsAndUser(ctx context.Context, userId string, objectIds []string) ([]*entity.Collection, error) {
+func (cr *collectionRepo) SearchByObjectIDsAndUser(ctx context.Context, userID string, objectIDs []string) ([]*entity.Collection, error) {
 	collectionList := make([]*entity.Collection, 0)
-	err := cr.data.DB.Where("user_id = ?", userId).In("object_id", objectIds).Find(&collectionList)
+	err := cr.data.DB.Context(ctx).Where("user_id = ?", userID).In("object_id", objectIDs).Find(&collectionList)
 	if err != nil {
 		return collectionList, err
 	}
@@ -94,9 +134,9 @@ func (cr *collectionRepo) SearchByObjectIDsAndUser(ctx context.Context, userId s
 }
 
 // CountByObjectID count by object TagID
-func (cr *collectionRepo) CountByObjectID(ctx context.Context, objectId string) (total int64, err error) {
+func (cr *collectionRepo) CountByObjectID(ctx context.Context, objectID string) (total int64, err error) {
 	collection := &entity.Collection{}
-	total, err = cr.data.DB.Where("object_id = ?", objectId).Count(collection)
+	total, err = cr.data.DB.Context(ctx).Where("object_id = ?", objectID).Count(collection)
 	if err != nil {
 		return 0, errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
@@ -105,10 +145,9 @@ func (cr *collectionRepo) CountByObjectID(ctx context.Context, objectId string) 
 
 // GetCollectionPage get collection page
 func (cr *collectionRepo) GetCollectionPage(ctx context.Context, page, pageSize int, collection *entity.Collection) (collectionList []*entity.Collection, total int64, err error) {
-
 	collectionList = make([]*entity.Collection, 0)
 
-	session := cr.data.DB.NewSession()
+	session := cr.data.DB.Context(ctx)
 	if collection.UserID != "" && collection.UserID != "0" {
 		session = session.Where("user_id = ?", collection.UserID)
 	}
@@ -119,22 +158,32 @@ func (cr *collectionRepo) GetCollectionPage(ctx context.Context, page, pageSize 
 	session = session.OrderBy("update_time desc")
 
 	total, err = pager.Help(page, pageSize, collectionList, collection, session)
-	err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	if err != nil {
+		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	}
 	return
 }
 
 // SearchObjectCollected check object is collected or not
-func (cr *collectionRepo) SearchObjectCollected(ctx context.Context, userId string, objectIds []string) (map[string]bool, error) {
-	collectedMap := make(map[string]bool)
-	list, err := cr.SearchByObjectIDsAndUser(ctx, userId, objectIds)
-	if err != nil {
-		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
-		return collectedMap, err
+func (cr *collectionRepo) SearchObjectCollected(ctx context.Context, userID string, objectIds []string) (map[string]bool, error) {
+	for i := 0; i < len(objectIds); i++ {
+		objectIds[i] = uid.DeShortID(objectIds[i])
 	}
+
+	list, err := cr.SearchByObjectIDsAndUser(ctx, userID, objectIds)
+	if err != nil {
+		return nil, errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	}
+
+	collectedMap := make(map[string]bool)
+	short := handler.GetEnableShortID(ctx)
 	for _, item := range list {
+		if short {
+			item.ObjectID = uid.EnShortID(item.ObjectID)
+		}
 		collectedMap[item.ObjectID] = true
 	}
-	return collectedMap, err
+	return collectedMap, nil
 }
 
 // SearchList
@@ -148,10 +197,10 @@ func (cr *collectionRepo) SearchList(ctx context.Context, search *entity.Collect
 		search.Page = 0
 	}
 	if search.PageSize == 0 {
-		search.PageSize = constant.Default_PageSize
+		search.PageSize = constant.DefaultPageSize
 	}
 	offset := search.Page * search.PageSize
-	session := cr.data.DB.Where("")
+	session := cr.data.DB.Context(ctx).Where("")
 	if len(search.UserID) > 0 {
 		session = session.And("user_id = ?", search.UserID)
 	} else {

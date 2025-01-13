@@ -1,32 +1,42 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package schema
 
 import "time"
 
 const (
-	CG_DEFAULT = 1
-	CG_DIY     = 2
+	CGDefault = 1
+	CGDIY     = 2
 )
 
 // CollectionSwitchReq switch collection request
 type CollectionSwitchReq struct {
-	// object TagID
 	ObjectID string `validate:"required" json:"object_id"`
-	// user collection group TagID
-	GroupID string `validate:"required" json:"group_id"`
-}
-
-// CollectionSwitchDTO  collection data transfer object
-type CollectionSwitchDTO struct {
-	ObjectID string
-	GroupID  string
-	UserID   string
+	GroupID  string `validate:"required" json:"group_id"`
+	Bookmark bool   `validate:"omitempty" json:"bookmark"`
+	UserID   string `json:"-"`
 }
 
 // CollectionSwitchResp switch collection response
 type CollectionSwitchResp struct {
-	ObjectID              string `json:"object_id"`
-	Switch                bool   `json:"switch"`
-	ObjectCollectionCount string `json:"object_collection_count"`
+	ObjectCollectionCount int64 `json:"object_collection_count"`
 }
 
 // AddCollectionGroupReq add collection group request
