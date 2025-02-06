@@ -1,8 +1,28 @@
-import { FC, memo } from 'react';
-import { ListGroup, ListGroupItem } from 'react-bootstrap';
-import { useTranslation } from 'react-i18next';
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
-import { Icon } from '@answer/components';
+import { FC, memo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
+
+import { pathFactory } from '@/router/pathFactory';
+import { Icon } from '@/components';
 
 interface Props {
   data: any[];
@@ -10,51 +30,65 @@ interface Props {
 }
 const Index: FC<Props> = ({ data, type }) => {
   const { t } = useTranslation('translation', { keyPrefix: 'personal' });
-
   return (
-    <ListGroup variant="flush" className="mb-4">
-      {data?.map((item) => {
+    <ol className="list-unstyled">
+      {data?.map((item, index) => {
         return (
-          <ListGroupItem
-            className="p-0 border-0 mb-2 d-flex flex-wrap align-items-center"
+          <li
+            className={`${index === data.length - 1 ? '' : 'mb-2'}`}
             key={type === 'answer' ? item.answer_id : item.question_id}>
-            <a
-              href={`/questions/${
+            <Link
+              className="text-truncate-1"
+              to={
                 type === 'answer'
-                  ? `${item.question_id}/${item.answer_id}`
-                  : item.question_id
-              }`}>
+                  ? pathFactory.answerLanding({
+                      questionId: item.question_id,
+                      slugTitle: item.question_info?.url_title,
+                      answerId: item.answer_id,
+                    })
+                  : pathFactory.questionLanding(
+                      item.question_id,
+                      item.url_title,
+                    )
+              }>
               {type === 'answer' ? item.question_info.title : item.title}
-            </a>
-            <div className="text-secondary ms-3 fs-14">
-              <Icon name="hand-thumbs-up-fill" />
-              <span> {item.vote_count}</span>
-            </div>
-            {type === 'question' && (
-              <div
-                className={`text-secondary ms-3 fs-14 ${
-                  Number(item.accepted_answer_id) > 0 ? 'text-success' : ''
-                }`}>
-                {Number(item.accepted_answer_id) > 0 ? (
+            </Link>
+
+            <div className="text-secondary small">
+              <Icon name="hand-thumbs-up-fill me-1" />
+              <span>
+                {item.vote_count} {t('votes', { keyPrefix: 'counts' })}
+              </span>
+
+              {type === 'question' && (
+                <div
+                  className={`d-inline-block text-secondary ms-3 small ${
+                    Number(item.accepted_answer_id) > 0 ? 'text-success' : ''
+                  }`}>
+                  {Number(item.accepted_answer_id) > 0 ? (
+                    <Icon name="check-circle-fill" />
+                  ) : (
+                    <Icon name="chat-square-text-fill" />
+                  )}
+
+                  <span>
+                    {' '}
+                    {item.answer_count} {t('answers', { keyPrefix: 'counts' })}
+                  </span>
+                </div>
+              )}
+
+              {type === 'answer' && item.accepted === 2 && (
+                <div className="d-inline-block text-success ms-3 small">
                   <Icon name="check-circle-fill" />
-                ) : (
-                  <Icon name="chat-square-text-fill" />
-                )}
-
-                <span> {item.answer_count}</span>
-              </div>
-            )}
-
-            {type === 'answer' && item.adopted === 2 && (
-              <div className="text-success ms-3 fs-14">
-                <Icon name="check-circle-fill" />
-                <span> {t('accepted')}</span>
-              </div>
-            )}
-          </ListGroupItem>
+                  <span> {t('accepted')}</span>
+                </div>
+              )}
+            </div>
+          </li>
         );
       })}
-    </ListGroup>
+    </ol>
   );
 };
 

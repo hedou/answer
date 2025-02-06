@@ -1,16 +1,36 @@
-import { FC, useEffect, useRef, useState, memo } from 'react';
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import { useEffect, useRef, useState, memo } from 'react';
 import { Button, Form, Modal } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
 import ToolItem from '../toolItem';
 import { IEditorContext } from '../types';
 
-const Link: FC<IEditorContext> = ({ editor }) => {
+let context: IEditorContext;
+const Link = () => {
   const { t } = useTranslation('translation', { keyPrefix: 'editor' });
   const item = {
-    label: 'link',
-    keyMap: ['Ctrl-L'],
-    tip: `${t('link.text')} (Ctrl+L)`,
+    label: 'link-45deg',
+    keyMap: ['Ctrl-l'],
+    tip: `${t('link.text')} (Ctrl+l)`,
   };
   const [visible, setVisible] = useState(false);
   const [link, setLink] = useState({
@@ -31,10 +51,11 @@ const Link: FC<IEditorContext> = ({ editor }) => {
       inputRef.current.focus();
     }
   }, [visible]);
-  const addLink = () => {
-    if (!editor) {
-      return;
-    }
+
+  const addLink = (ctx) => {
+    context = ctx;
+    const { editor } = context;
+
     const text = editor.getSelection();
 
     setName({ ...name, value: text });
@@ -42,9 +63,8 @@ const Link: FC<IEditorContext> = ({ editor }) => {
     setVisible(true);
   };
   const handleClick = () => {
-    if (!editor) {
-      return;
-    }
+    const { editor } = context;
+
     if (!link.value) {
       setLink({ ...link, isInvalid: true });
       return;
@@ -62,10 +82,14 @@ const Link: FC<IEditorContext> = ({ editor }) => {
     setName({ ...name, value: '' });
   };
   const onHide = () => setVisible(false);
-  const onExited = () => editor?.focus();
+  const onExited = () => {
+    const { editor } = context;
+    editor.focus();
+  };
 
   return (
-    <ToolItem {...item} onClick={addLink}>
+    <>
+      <ToolItem {...item} onClick={addLink} />
       <Modal
         show={visible}
         onHide={onHide}
@@ -88,7 +112,12 @@ const Link: FC<IEditorContext> = ({ editor }) => {
             </Form.Group>
 
             <Form.Group controlId="editor.internetSiteName" className="mb-3">
-              <Form.Label>{t('link.form.fields.name.label')}</Form.Label>
+              <Form.Label>{`${t('link.form.fields.name.label')} ${t(
+                'optional',
+                {
+                  keyPrefix: 'form',
+                },
+              )}`}</Form.Label>
               <Form.Control
                 type="text"
                 value={name.value}
@@ -107,7 +136,7 @@ const Link: FC<IEditorContext> = ({ editor }) => {
           </Button>
         </Modal.Footer>
       </Modal>
-    </ToolItem>
+    </>
   );
 };
 

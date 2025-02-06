@@ -1,185 +1,437 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package migrations
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/apache/answer/internal/base/constant"
+	"time"
 
-	"github.com/answerdev/answer/internal/base/data"
-	"github.com/answerdev/answer/internal/entity"
+	"github.com/apache/answer/internal/base/data"
+	"github.com/apache/answer/internal/repo/unique"
+	"github.com/apache/answer/internal/schema"
+	"github.com/segmentfault/pacman/log"
+
+	"github.com/apache/answer/internal/entity"
+	"golang.org/x/crypto/bcrypt"
 	"xorm.io/xorm"
 )
 
-var (
-	tables = []interface{}{
-		&entity.Activity{},
-		&entity.Answer{},
-		&entity.Collection{},
-		&entity.CollectionGroup{},
-		&entity.Comment{},
-		&entity.Config{},
-		&entity.Meta{},
-		&entity.Notification{},
-		&entity.Question{},
-		&entity.Report{},
-		&entity.Revision{},
-		&entity.SiteInfo{},
-		&entity.Tag{},
-		&entity.TagRel{},
-		&entity.Uniqid{},
-		&entity.User{},
-		&entity.Version{},
-	}
-)
-
-// InitDB init db
-func InitDB(dataConf *data.Database) (err error) {
-	engine, err := data.NewDB(false, dataConf)
-	if err != nil {
-		fmt.Println("new database failed: ", err.Error())
-		return err
-	}
-
-	exist, err := engine.IsTableExist(&entity.Version{})
-	if err != nil {
-		return fmt.Errorf("check table exists failed: %s", err)
-	}
-	if exist {
-		fmt.Println("[database] already exists")
-		return nil
-	}
-
-	err = engine.Sync(tables...)
-	if err != nil {
-		return fmt.Errorf("sync table failed: %s", err)
-	}
-
-	err = initAdminUser(engine)
-	if err != nil {
-		return fmt.Errorf("init admin user failed: %s", err)
-	}
-
-	err = initSiteInfo(engine)
-	if err != nil {
-		return fmt.Errorf("init site info failed: %s", err)
-	}
-
-	err = initConfigTable(engine)
-	if err != nil {
-		return fmt.Errorf("init config table: %s", err)
-	}
-	return nil
+type Mentor struct {
+	ctx      context.Context
+	engine   *xorm.Engine
+	userData *InitNeedUserInputData
+	err      error
+	Done     bool
 }
 
-func initAdminUser(engine *xorm.Engine) error {
-	_, err := engine.InsertOne(&entity.User{
-		Username:     "admin",
-		Pass:         "$2a$10$.gnUnpW.8ssRNaEvx.XwvOR2NuPsGzFLWWX2rqSIVAdIvLNZZYs5y", // admin
-		EMail:        "admin@admin.com",
+func NewMentor(ctx context.Context, engine *xorm.Engine, data *InitNeedUserInputData) *Mentor {
+	return &Mentor{ctx: ctx, engine: engine, userData: data}
+}
+
+type InitNeedUserInputData struct {
+	Language      string
+	SiteName      string
+	SiteURL       string
+	ContactEmail  string
+	AdminName     string
+	AdminPassword string
+	AdminEmail    string
+	LoginRequired bool
+}
+
+func (m *Mentor) InitDB() error {
+	m.do("check table exist", m.checkTableExist)
+	m.do("sync table", m.syncTable)
+	m.do("init version table", m.initVersionTable)
+	m.do("init admin user", m.initAdminUser)
+	m.do("init config", m.initConfig)
+	m.do("init default privileges config", m.initDefaultRankPrivileges)
+	m.do("init role", m.initRole)
+	m.do("init power", m.initPower)
+	m.do("init role power rel", m.initRolePowerRel)
+	m.do("init admin user role rel", m.initAdminUserRoleRel)
+	m.do("init site info interface", m.initSiteInfoInterface)
+	m.do("init site info general config", m.initSiteInfoGeneralData)
+	m.do("init site info login config", m.initSiteInfoLoginConfig)
+	m.do("init site info theme config", m.initSiteInfoThemeConfig)
+	m.do("init site info seo config", m.initSiteInfoSEOConfig)
+	m.do("init site info user config", m.initSiteInfoUsersConfig)
+	m.do("init site info privilege rank", m.initSiteInfoPrivilegeRank)
+	m.do("init site info write", m.initSiteInfoWrite)
+	m.do("init default content", m.initDefaultContent)
+	m.do("init default badges", m.initDefaultBadges)
+	return m.err
+}
+
+func (m *Mentor) do(taskName string, fn func()) {
+	if m.err != nil || m.Done {
+		return
+	}
+	fn()
+	if m.err != nil {
+		m.err = fmt.Errorf("%s failed: %s", taskName, m.err)
+	}
+}
+
+func (m *Mentor) checkTableExist() {
+	m.Done, m.err = m.engine.Context(m.ctx).IsTableExist(&entity.Version{})
+	if m.Done {
+		fmt.Println("[database] already exists")
+	}
+}
+
+func (m *Mentor) syncTable() {
+	m.err = m.engine.Context(m.ctx).Sync(tables...)
+}
+
+func (m *Mentor) initVersionTable() {
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.Version{ID: 1, VersionNumber: ExpectedVersion()})
+}
+
+func (m *Mentor) initAdminUser() {
+	generateFromPassword, _ := bcrypt.GenerateFromPassword([]byte(m.userData.AdminPassword), bcrypt.DefaultCost)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.User{
+		ID:           "1",
+		Username:     m.userData.AdminName,
+		Pass:         string(generateFromPassword),
+		EMail:        m.userData.AdminEmail,
 		MailStatus:   1,
 		NoticeStatus: 1,
 		Status:       1,
-		DisplayName:  "admin",
-		IsAdmin:      true,
+		Rank:         1,
+		DisplayName:  m.userData.AdminName,
 	})
-	return err
 }
 
-func initSiteInfo(engine *xorm.Engine) error {
-	_, err := engine.InsertOne(&entity.SiteInfo{
+func (m *Mentor) initConfig() {
+	_, m.err = m.engine.Context(m.ctx).Insert(defaultConfigTable)
+}
+
+func (m *Mentor) initDefaultRankPrivileges() {
+	chooseOption := schema.DefaultPrivilegeOptions.Choose(schema.PrivilegeLevel2)
+	for _, privilege := range chooseOption.Privileges {
+		_, err := m.engine.Context(m.ctx).Update(
+			&entity.Config{Value: fmt.Sprintf("%d", privilege.Value)},
+			&entity.Config{Key: privilege.Key},
+		)
+		if err != nil {
+			log.Error(err)
+		}
+	}
+}
+
+func (m *Mentor) initRole() {
+	_, m.err = m.engine.Context(m.ctx).Insert(roles)
+}
+
+func (m *Mentor) initPower() {
+	_, m.err = m.engine.Context(m.ctx).Insert(powers)
+}
+
+func (m *Mentor) initRolePowerRel() {
+	_, m.err = m.engine.Context(m.ctx).Insert(rolePowerRels)
+}
+
+func (m *Mentor) initAdminUserRoleRel() {
+	_, m.err = m.engine.Context(m.ctx).Insert(adminUserRoleRel)
+}
+
+func (m *Mentor) initSiteInfoInterface() {
+	interfaceData := map[string]string{
+		"language":  m.userData.Language,
+		"time_zone": "UTC",
+	}
+	interfaceDataBytes, _ := json.Marshal(interfaceData)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
 		Type:    "interface",
-		Content: `{"logo":"","theme":"black","language":"en_US"}`,
+		Content: string(interfaceDataBytes),
 		Status:  1,
 	})
-	return err
 }
 
-func initConfigTable(engine *xorm.Engine) error {
-	defaultConfigTable := []*entity.Config{
-		{1, "answer.accepted", `15`},
-		{2, "answer.voted_up", `10`},
-		{3, "question.voted_up", `10`},
-		{4, "tag.edit_accepted", `2`},
-		{5, "answer.accept", `2`},
-		{6, "answer.voted_down_cancel", `2`},
-		{7, "question.voted_down_cancel", `2`},
-		{8, "answer.vote_down_cancel", `1`},
-		{9, "question.vote_down_cancel", `1`},
-		{10, "user.activated", `1`},
-		{11, "edit.accepted", `2`},
-		{12, "answer.vote_down", `-1`},
-		{13, "question.voted_down", `-2`},
-		{14, "answer.voted_down", `-2`},
-		{15, "answer.accept_cancel", `-2`},
-		{16, "answer.deleted", `-5`},
-		{17, "question.voted_up_cancel", `-10`},
-		{18, "answer.voted_up_cancel", `-10`},
-		{19, "answer.accepted_cancel", `-15`},
-		{20, "object.reported", `-100`},
-		{21, "edit.rejected", `-2`},
-		{22, "daily_rank_limit", `200`},
-		{23, "daily_rank_limit.exclude", `["answer.accepted"]`},
-		{24, "user.follow", `0`},
-		{25, "comment.vote_up", `0`},
-		{26, "comment.vote_up_cancel", `0`},
-		{27, "question.vote_down", `0`},
-		{28, "question.vote_up", `0`},
-		{29, "question.vote_up_cancel", `0`},
-		{30, "answer.vote_up", `0`},
-		{31, "answer.vote_up_cancel", `0`},
-		{32, "question.follow", `0`},
-		{33, "email.config", `{"from_name":"answer","from_email":"answer@answer.com","smtp_host":"smtp.answer.org","smtp_port":465,"smtp_password":"answer","smtp_username":"answer@answer.com","smtp_authentication":true,"encryption":"","register_title":"[{{.SiteName}}] Confirm your new account","register_body":"Welcome to {{.SiteName}}<br><br>\n\nClick the following link to confirm and activate your new account:<br>\n<a href='{{.RegisterUrl}}' target='_blank'>{{.RegisterUrl}}</a><br><br>\n\nIf the above link is not clickable, try copying and pasting it into the address bar of your web browser.\n","pass_reset_title":"[{{.SiteName }}] Password reset","pass_reset_body":"Somebody asked to reset your password on [{{.SiteName}}].<br><br>\n\nIf it was not you, you can safely ignore this email.<br><br>\n\nClick the following link to choose a new password:<br>\n<a href='{{.PassResetUrl}}' target='_blank'>{{.PassResetUrl}}</a>\n","change_title":"[{{.SiteName}}] Confirm your new email address","change_body":"Confirm your new email address for {{.SiteName}}  by clicking on the following link:<br><br>\n\n<a href='{{.ChangeEmailUrl}}' target='_blank'>{{.ChangeEmailUrl}}</a><br><br>\n\nIf you did not request this change, please ignore this email.\n","test_title":"[{{.SiteName}}] Test Email","test_body":"This is a test email."}`},
-		{35, "tag.follow", `0`},
-		{36, "rank.question.add", `0`},
-		{37, "rank.question.edit", `0`},
-		{38, "rank.question.delete", `0`},
-		{39, "rank.question.vote_up", `0`},
-		{40, "rank.question.vote_down", `0`},
-		{41, "rank.answer.add", `0`},
-		{42, "rank.answer.edit", `0`},
-		{43, "rank.answer.delete", `0`},
-		{44, "rank.answer.accept", `0`},
-		{45, "rank.answer.vote_up", `0`},
-		{46, "rank.answer.vote_down", `0`},
-		{47, "rank.comment.add", `0`},
-		{48, "rank.comment.edit", `0`},
-		{49, "rank.comment.delete", `0`},
-		{50, "rank.report.add", `0`},
-		{51, "rank.tag.add", `0`},
-		{52, "rank.tag.edit", `0`},
-		{53, "rank.tag.delete", `0`},
-		{54, "rank.tag.synonym", `0`},
-		{55, "rank.link.url_limit", `0`},
-		{56, "rank.vote.detail", `0`},
-		{57, "reason.spam", `{"name":"spam","description":"This post is an advertisement, or vandalism. It is not useful or relevant to the current topic."}`},
-		{58, "reason.rude_or_abusive", `{"name":"rude or abusive","description":"A reasonable person would find this content inappropriate for respectful discourse."}`},
-		{59, "reason.something", `{"name":"something else","description":"This post requires staff attention for another reason not listed above.","content_type":"textarea"}`},
-		{60, "reason.a_duplicate", `{"name":"a duplicate","description":"This question has been asked before and already has an answer.","content_type":"text"}`},
-		{61, "reason.not_a_answer", `{"name":"not a answer","description":"This was posted as an answer, but it does not attempt to answer the question. It should possibly be an edit, a comment, another question, or deleted altogether.","content_type":""}`},
-		{62, "reason.no_longer_needed", `{"name":"no longer needed","description":"This comment is outdated, conversational or not relevant to this post."}`},
-		{63, "reason.community_specific", `{"name":"a community-specific reason","description":"This question doesn’t meet a community guideline."}`},
-		{64, "reason.not_clarity", `{"name":"needs details or clarity","description":"This question currently includes multiple questions in one. It should focus on one problem only.","content_type":"text"}`},
-		{65, "reason.normal", `{"name":"normal","description":"A normal post available to everyone."}`},
-		{66, "reason.normal.user", `{"name":"normal","description":"A normal user can ask and answer questions."}`},
-		{67, "reason.closed", `{"name":"closed","description":"A closed question can’t answer, but still can edit, vote and comment."}`},
-		{68, "reason.deleted", `{"name":"deleted","description":"All reputation gained and lost will be restored."}`},
-		{69, "reason.deleted.user", `{"name":"deleted","description":"Delete profile, authentication associations."}`},
-		{70, "reason.suspended", `{"name":"suspended","description":"A suspended user can’t log in."}`},
-		{71, "reason.inactive", `{"name":"inactive","description":"An inactive user must re-validate their email."}`},
-		{72, "reason.looks_ok", `{"name":"looks ok","description":"This post is good as-is and not low quality."}`},
-		{73, "reason.needs_edit", `{"name":"needs edit, and I did it","description":"Improve and correct problems with this post yourself."}`},
-		{74, "reason.needs_close", `{"name":"needs close","description":"A closed question can’t answer, but still can edit, vote and comment."}`},
-		{75, "reason.needs_delete", `{"name":"needs delete","description":"All reputation gained and lost will be restored."}`},
-		{76, "question.flag.reasons", `["reason.spam","reason.rude_or_abusive","reason.something","reason.a_duplicate"]`},
-		{77, "answer.flag.reasons", `["reason.spam","reason.rude_or_abusive","reason.something","reason.not_a_answer"]`},
-		{78, "comment.flag.reasons", `["reason.spam","reason.rude_or_abusive","reason.something","reason.no_longer_needed"]`},
-		{79, "question.close.reasons", `["reason.a_duplicate","reason.community_specific","reason.not_clarity","reason.something"]`},
-		{80, "question.status.reasons", `["reason.normal","reason.closed","reason.deleted"]`},
-		{81, "answer.status.reasons", `["reason.normal","reason.deleted"]`},
-		{82, "comment.status.reasons", `["reason.normal","reason.deleted"]`},
-		{83, "user.status.reasons", `["reason.normal.user","reason.suspended","reason.deleted.user","reason.inactive"]`},
-		{84, "question.review.reasons", `["reason.looks_ok","reason.needs_edit","reason.needs_close","reason.needs_delete"]`},
-		{85, "answer.review.reasons", `["reason.looks_ok","reason.needs_edit","reason.needs_delete"]`},
-		{86, "comment.review.reasons", `["reason.looks_ok","reason.needs_edit","reason.needs_delete"]`},
+func (m *Mentor) initSiteInfoGeneralData() {
+	generalData := map[string]string{
+		"name":          m.userData.SiteName,
+		"site_url":      m.userData.SiteURL,
+		"contact_email": m.userData.ContactEmail,
 	}
-	_, err := engine.Insert(defaultConfigTable)
-	return err
+	generalDataBytes, _ := json.Marshal(generalData)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
+		Type:    "general",
+		Content: string(generalDataBytes),
+		Status:  1,
+	})
+}
+
+func (m *Mentor) initSiteInfoLoginConfig() {
+	loginConfig := map[string]bool{
+		"allow_new_registrations":   true,
+		"allow_email_registrations": true,
+		"allow_password_login":      true,
+		"login_required":            m.userData.LoginRequired,
+	}
+	loginConfigDataBytes, _ := json.Marshal(loginConfig)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
+		Type:    "login",
+		Content: string(loginConfigDataBytes),
+		Status:  1,
+	})
+}
+
+func (m *Mentor) initSiteInfoThemeConfig() {
+	themeConfig := `{"theme":"default","theme_config":{"default":{"navbar_style":"colored","primary_color":"#0033ff"}}}`
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
+		Type:    "theme",
+		Content: themeConfig,
+		Status:  1,
+	})
+}
+
+func (m *Mentor) initSiteInfoSEOConfig() {
+	seoData := map[string]interface{}{
+		"permalink": constant.PermalinkQuestionID,
+		"robots":    defaultSEORobotTxt + m.userData.SiteURL + "/sitemap.xml",
+	}
+	seoDataBytes, _ := json.Marshal(seoData)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
+		Type:    "seo",
+		Content: string(seoDataBytes),
+		Status:  1,
+	})
+}
+
+func (m *Mentor) initSiteInfoUsersConfig() {
+	usersData := map[string]any{
+		"default_avatar":            "gravatar",
+		"gravatar_base_url":         "https://www.gravatar.com/avatar/",
+		"allow_update_display_name": true,
+		"allow_update_username":     true,
+		"allow_update_avatar":       true,
+		"allow_update_bio":          true,
+		"allow_update_website":      true,
+		"allow_update_location":     true,
+	}
+	usersDataBytes, _ := json.Marshal(usersData)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
+		Type:    "users",
+		Content: string(usersDataBytes),
+		Status:  1,
+	})
+}
+
+func (m *Mentor) initSiteInfoPrivilegeRank() {
+	privilegeRankData := map[string]interface{}{
+		"level": schema.PrivilegeLevel2,
+	}
+	privilegeRankDataBytes, _ := json.Marshal(privilegeRankData)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
+		Type:    "privileges",
+		Content: string(privilegeRankDataBytes),
+		Status:  1,
+	})
+}
+
+func (m *Mentor) initSiteInfoWrite() {
+	writeData := map[string]interface{}{
+		"restrict_answer":       true,
+		"max_image_size":        4,
+		"max_attachment_size":   8,
+		"max_image_megapixel":   40,
+		"authorized_extensions": []string{"jpg", "jpeg", "png", "gif", "webp"},
+	}
+	writeDataBytes, _ := json.Marshal(writeData)
+	_, m.err = m.engine.Context(m.ctx).Insert(&entity.SiteInfo{
+		Type:    "write",
+		Content: string(writeDataBytes),
+		Status:  1,
+	})
+}
+
+func (m *Mentor) initDefaultContent() {
+	uniqueIDRepo := unique.NewUniqueIDRepo(&data.Data{DB: m.engine})
+	now := time.Now()
+
+	tagId, err := uniqueIDRepo.GenUniqueIDStr(m.ctx, entity.Tag{}.TableName())
+	if err != nil {
+		m.err = err
+		return
+	}
+
+	q1Id, err := uniqueIDRepo.GenUniqueIDStr(m.ctx, entity.Question{}.TableName())
+	if err != nil {
+		m.err = err
+		return
+	}
+
+	a1Id, err := uniqueIDRepo.GenUniqueIDStr(m.ctx, entity.Answer{}.TableName())
+	if err != nil {
+		m.err = err
+		return
+	}
+
+	q2Id, err := uniqueIDRepo.GenUniqueIDStr(m.ctx, entity.Question{}.TableName())
+	if err != nil {
+		m.err = err
+		return
+	}
+
+	a2Id, err := uniqueIDRepo.GenUniqueIDStr(m.ctx, entity.Answer{}.TableName())
+	if err != nil {
+		m.err = err
+		return
+	}
+
+	tag := entity.Tag{
+		ID:            tagId,
+		SlugName:      "support",
+		DisplayName:   "support",
+		OriginalText:  "For general support questions.",
+		ParsedText:    "<p>For general support questions.</p>",
+		UserID:        "1",
+		QuestionCount: 2,
+		Status:        entity.TagStatusAvailable,
+		RevisionID:    "0",
+	}
+
+	q1 := &entity.Question{
+		ID:               q1Id,
+		CreatedAt:        now,
+		UserID:           "1",
+		LastEditUserID:   "1",
+		Title:            "What is a tag?",
+		OriginalText:     "When asking a question, we need to choose tags. What are tags and why should I use them?",
+		ParsedText:       "<p>When asking a question, we need to choose tags. What are tags and why should I use them?</p>",
+		Pin:              entity.QuestionUnPin,
+		Show:             entity.QuestionShow,
+		Status:           entity.QuestionStatusAvailable,
+		AnswerCount:      1,
+		AcceptedAnswerID: "0",
+		LastAnswerID:     a1Id,
+		PostUpdateTime:   now,
+		RevisionID:       "0",
+	}
+
+	a1 := &entity.Answer{
+		ID:             a1Id,
+		CreatedAt:      now,
+		QuestionID:     q1Id,
+		UserID:         "1",
+		LastEditUserID: "0",
+		OriginalText:   "Tags help to organize content and make searching easier. It helps your question get more attention from people interested in that tag. Tags also send notifications. If you are interested in some topic, follow that tag to get updates.",
+		ParsedText:     "<p>Tags help to organize content and make searching easier. It helps your question get more attention from people interested in that tag. Tags also send notifications. If you are interested in some topic, follow that tag to get updates.</p>",
+		Status:         entity.AnswerStatusAvailable,
+		RevisionID:     "0",
+	}
+
+	q2 := &entity.Question{
+		ID:               q2Id,
+		CreatedAt:        now,
+		UserID:           "1",
+		LastEditUserID:   "1",
+		Title:            "What is reputation and how do I earn them?",
+		OriginalText:     "I see that each user has reputation points, What is it and how do I earn them?",
+		ParsedText:       "<p>I see that each user has reputation points, What is it and how do I earn them?</p>",
+		Pin:              entity.QuestionUnPin,
+		Show:             entity.QuestionShow,
+		Status:           entity.QuestionStatusAvailable,
+		AnswerCount:      1,
+		AcceptedAnswerID: "0",
+		LastAnswerID:     a2Id,
+		PostUpdateTime:   now,
+		RevisionID:       "0",
+	}
+
+	a2 := &entity.Answer{
+		ID:             a2Id,
+		CreatedAt:      now,
+		QuestionID:     q2Id,
+		UserID:         "1",
+		LastEditUserID: "0",
+		OriginalText:   "Your reputation points show how much the community values your knowledge. You earn points when someone find your question or answer helpful. You also get points when the person who asked the question thinks you did a good job and accepts your answer.",
+		ParsedText:     "<p>Your reputation points show how much the community values your knowledge. You earn points when someone find your question or answer helpful. You also get points when the person who asked the question thinks you did a good job and accepts your answer.</p>",
+		Status:         entity.AnswerStatusAvailable,
+		RevisionID:     "0",
+	}
+
+	_, m.err = m.engine.Context(m.ctx).Insert(tag)
+	if m.err != nil {
+		return
+	}
+
+	_, m.err = m.engine.Context(m.ctx).Insert(q1)
+	if m.err != nil {
+		return
+	}
+
+	_, m.err = m.engine.Context(m.ctx).Insert(a1)
+	if m.err != nil {
+		return
+	}
+
+	_, m.err = m.engine.Context(m.ctx).Insert(entity.TagRel{
+		ObjectID: q1.ID,
+		TagID:    tag.ID,
+		Status:   entity.TagRelStatusAvailable,
+	})
+	if m.err != nil {
+		return
+	}
+
+	_, m.err = m.engine.Context(m.ctx).Insert(q2)
+	if m.err != nil {
+		return
+	}
+
+	_, m.err = m.engine.Context(m.ctx).Insert(a2)
+	if m.err != nil {
+		return
+	}
+
+	_, m.err = m.engine.Context(m.ctx).Insert(entity.TagRel{
+		ObjectID: q2.ID,
+		TagID:    tag.ID,
+		Status:   entity.TagRelStatusAvailable,
+	})
+	if m.err != nil {
+		return
+	}
+}
+
+func (m *Mentor) initDefaultBadges() {
+	uniqueIDRepo := unique.NewUniqueIDRepo(&data.Data{DB: m.engine})
+
+	_, m.err = m.engine.Context(m.ctx).Insert(defaultBadgeGroupTable)
+	if m.err != nil {
+		return
+	}
+	for _, badge := range defaultBadgeTable {
+		badge.ID, m.err = uniqueIDRepo.GenUniqueIDStr(m.ctx, new(entity.Badge).TableName())
+		if m.err != nil {
+			return
+		}
+		if _, m.err = m.engine.Context(m.ctx).Insert(badge); m.err != nil {
+			return
+		}
+	}
+	return
 }

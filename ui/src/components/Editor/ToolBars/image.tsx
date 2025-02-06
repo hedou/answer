@@ -1,20 +1,48 @@
-import { FC, useEffect, useState, memo } from 'react';
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import { useEffect, useState, memo } from 'react';
 import { Button, Form, Modal, Tab, Tabs } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
-import { Modal as AnswerModal } from '@answer/components';
-import { uploadImage } from '@answer/api';
+import { Modal as AnswerModal } from '@/components';
 import ToolItem from '../toolItem';
-import { IEditorContext } from '../types';
+import { IEditorContext, Editor } from '../types';
+import { uploadImage } from '@/services';
+import { writeSettingStore } from '@/stores';
 
-const Image: FC<IEditorContext> = ({ editor }) => {
+let context: IEditorContext;
+const Image = ({ editorInstance }) => {
+  const [editor, setEditor] = useState<Editor>(editorInstance);
   const { t } = useTranslation('translation', { keyPrefix: 'editor' });
+  const {
+    max_image_size = 4,
+    max_attachment_size = 8,
+    authorized_image_extensions = [],
+    authorized_attachment_extensions = [],
+  } = writeSettingStore((state) => state.write);
 
   const loadingText = `![${t('image.uploading')}...]()`;
 
   const item = {
-    label: 'image',
-    keyMap: ['Ctrl-G'],
+    label: 'image-fill',
+    keyMap: ['Ctrl-g'],
     tip: `${t('image.text')} (Ctrl+G)`,
   };
   const [currentTab, setCurrentTab] = useState('localImage');
@@ -31,61 +59,101 @@ const Image: FC<IEditorContext> = ({ editor }) => {
     isInvalid: false,
     errorMsg: '',
   });
+
   const verifyImageSize = (files: FileList) => {
     if (files.length === 0) {
       return false;
     }
-    const filteredFiles = Array.from(files).filter(
-      (file) => file.type.indexOf('image') === -1,
-    );
 
-    if (filteredFiles.length > 0) {
+    /**
+     * When allowing attachments to be uploaded, verification logic for attachment information has been added. In order to avoid abnormal judgment caused by the order of drag and drop upload, the drag and drop upload verification of attachments and the drag and drop upload of images are put together.
+     *
+     */
+    const canUploadAttachment = authorized_attachment_extensions.length > 0;
+    const allowedAllType = [
+      ...authorized_image_extensions,
+      ...authorized_attachment_extensions,
+    ];
+    const unSupportFiles = Array.from(files).filter((file) => {
+      const fileName = file.name.toLowerCase();
+      return canUploadAttachment
+        ? !allowedAllType.find((v) => fileName.endsWith(v))
+        : file.type.indexOf('image') === -1;
+    });
+
+    if (unSupportFiles.length > 0) {
       AnswerModal.confirm({
-        content: t('image.only_image'),
+        content: canUploadAttachment
+          ? t('file.not_supported', { file_type: allowedAllType.join(', ') })
+          : t('image.form_image.fields.file.msg.only_image'),
+        showCancel: false,
       });
       return false;
     }
-    const filteredImages = Array.from(files).filter(
-      (file) => file.size / 1024 / 1024 > 4,
-    );
 
-    if (filteredImages.length > 0) {
+    const otherFiles = Array.from(files).filter((file) => {
+      return file.type.indexOf('image') === -1;
+    });
+
+    if (canUploadAttachment && otherFiles.length > 0) {
+      const attachmentOverSizeFiles = otherFiles.filter(
+        (file) => file.size / 1024 / 1024 > max_attachment_size,
+      );
+      if (attachmentOverSizeFiles.length > 0) {
+        AnswerModal.confirm({
+          content: t('file.max_size', { size: max_attachment_size }),
+          showCancel: false,
+        });
+        return false;
+      }
+    }
+
+    const imageFiles = Array.from(files).filter(
+      (file) => file.type.indexOf('image') > -1,
+    );
+    const oversizedImages = imageFiles.filter(
+      (file) => file.size / 1024 / 1024 > max_image_size,
+    );
+    if (oversizedImages.length > 0) {
       AnswerModal.confirm({
-        content: t('image.max_size'),
+        content: t('image.form_image.fields.file.msg.max_size', {
+          size: max_image_size,
+        }),
+        showCancel: false,
       });
       return false;
     }
+
     return true;
   };
+
   const upload = (
     files: FileList,
-  ): Promise<{ url: string; name: string }[]> => {
+  ): Promise<{ url: string; name: string; type: string }[]> => {
     const promises = Array.from(files).map(async (file) => {
-      const url = await uploadImage(file);
+      const type = file.type.indexOf('image') > -1 ? 'post' : 'post_attachment';
+      const url = await uploadImage({ file, type });
 
       return {
         name: file.name,
         url,
+        type,
       };
     });
 
     return Promise.all(promises);
   };
-  function dragenter(_, e) {
+  function dragenter(e) {
     e.stopPropagation();
     e.preventDefault();
   }
 
-  function dragover(_, e) {
+  function dragover(e) {
     e.stopPropagation();
     e.preventDefault();
   }
-  const drop = async (_, e) => {
-    if (!editor) {
-      return;
-    }
+  const drop = async (e) => {
     const fileList = e.dataTransfer.files;
-
     const bool = verifyImageSize(fileList);
 
     if (!bool) {
@@ -93,38 +161,63 @@ const Image: FC<IEditorContext> = ({ editor }) => {
     }
 
     const startPos = editor.getCursor();
+
     const endPos = { ...startPos, ch: startPos.ch + loadingText.length };
 
     editor.replaceSelection(loadingText);
-    const urls = await upload(fileList);
+    editor.setReadOnly(true);
+    const urls = await upload(fileList)
+      .catch(() => {
+        editor.replaceRange('', startPos, endPos);
+      })
+      .finally(() => {
+        editor.setReadOnly(false);
+        editor.focus();
+      });
 
-    const text = urls.map(({ name, url }) => {
-      return `![${name}](${url})`;
-    });
-
-    editor.replaceRange(text.join('\n'), startPos, endPos);
+    const text: string[] = [];
+    if (Array.isArray(urls)) {
+      urls.forEach(({ name, url, type }) => {
+        if (name && url) {
+          text.push(`${type === 'post' ? '!' : ''}[${name}](${url})`);
+        }
+      });
+    }
+    if (text.length) {
+      editor.replaceRange(text.join('\n'), startPos, endPos);
+    } else {
+      editor.replaceRange('', startPos, endPos);
+    }
   };
 
-  const paste = async (_, event) => {
+  const paste = async (event) => {
     const clipboard = event.clipboardData;
 
     const bool = verifyImageSize(clipboard.files);
 
     if (bool) {
       event.preventDefault();
-      editor.setOption('readOnly', true);
-      const startPos = editor.getCursor('');
+      const startPos = editor.getCursor();
       const endPos = { ...startPos, ch: startPos.ch + loadingText.length };
 
       editor.replaceSelection(loadingText);
-      const urls = await upload(clipboard.files);
-      const text = urls.map(({ name, url }) => {
-        return `![${name}](${url})`;
-      });
+      editor.setReadOnly(true);
+      upload(clipboard.files)
+        .then((urls) => {
+          const text = urls.map(({ name, url, type }) => {
+            return `${type === 'post' ? '!' : ''}[${name}](${url})`;
+          });
 
-      editor.replaceRange(text.join('\n'), startPos, endPos);
+          editor.replaceRange(text.join('\n'), startPos, endPos);
+        })
+        .catch(() => {
+          editor.replaceRange('', startPos, endPos);
+        })
+        .finally(() => {
+          editor.setReadOnly(false);
+          editor.focus();
+        });
 
-      editor.setOption('readOnly', false);
       return;
     }
 
@@ -136,22 +229,31 @@ const Image: FC<IEditorContext> = ({ editor }) => {
     }
     event.preventDefault();
 
-    const newHtml = new DOMParser()
+    let innerText = '';
+    const allPTag = new DOMParser()
       .parseFromString(
         htmlStr.replace(
           /<img([\s\S]*?) src\s*=\s*(['"])([\s\S]*?)\2([^>]*)>/gi,
-          `<p>\n![${t('image.text')}]($3)\n</p>`,
+          `<p>![${t('image.text')}]($3)\n\n</p>`,
         ),
         'text/html',
       )
-      .querySelector('body')?.innerText as string;
+      .querySelectorAll('body p');
 
-    editor.replaceSelection(newHtml);
+    allPTag.forEach((p, index) => {
+      const text = p.textContent || '';
+      if (text !== '') {
+        if (index === allPTag.length - 1) {
+          innerText += `${p.textContent}`;
+        } else {
+          innerText += `${p.textContent}${text.endsWith('\n') ? '' : '\n\n'}`;
+        }
+      }
+    });
+
+    editor.replaceSelection(innerText);
   };
   const handleClick = () => {
-    if (!editor) {
-      return;
-    }
     if (!link.value) {
       setLink({ ...link, isInvalid: true });
       return;
@@ -169,15 +271,15 @@ const Image: FC<IEditorContext> = ({ editor }) => {
     setImageName({ ...imageName, value: '' });
   };
   useEffect(() => {
-    editor.on('dragenter', dragenter);
-    editor.on('dragover', dragover);
-    editor.on('drop', drop);
-    editor.on('paste', paste);
+    editor?.on('dragenter', dragenter);
+    editor?.on('dragover', dragover);
+    editor?.on('drop', drop);
+    editor?.on('paste', paste);
     return () => {
-      editor.off('dragenter', dragenter);
-      editor.off('dragover', dragover);
-      editor.off('drop', drop);
-      editor.off('paste', paste);
+      editor?.off('dragenter', dragenter);
+      editor?.off('dragover', dragover);
+      editor?.off('drop', drop);
+      editor?.off('paste', paste);
     };
   }, [editor]);
 
@@ -187,11 +289,10 @@ const Image: FC<IEditorContext> = ({ editor }) => {
     }
   }, [link.value]);
 
-  const addLink = () => {
-    if (!editor) {
-      return;
-    }
-    const text = editor?.getSelection();
+  const addLink = (ctx) => {
+    context = ctx;
+    setEditor(context.editor);
+    const text = context.editor?.getSelection();
 
     setImageName({ ...imageName, value: text });
 
@@ -209,8 +310,9 @@ const Image: FC<IEditorContext> = ({ editor }) => {
       return;
     }
 
-    uploadImage(e.target.files[0]).then((url) => {
+    uploadImage({ file: e.target.files[0], type: 'post' }).then((url) => {
       setLink({ ...link, value: url });
+      setImageName({ ...imageName, value: files[0].name });
     });
   };
 
@@ -242,6 +344,7 @@ const Image: FC<IEditorContext> = ({ editor }) => {
                     type="file"
                     onChange={onUpload}
                     isInvalid={currentTab === 'localImage' && link.isInvalid}
+                    accept="image/*"
                   />
 
                   <Form.Control.Feedback type="invalid">
@@ -251,7 +354,12 @@ const Image: FC<IEditorContext> = ({ editor }) => {
 
                 <Form.Group controlId="editor.imgDescription" className="mb-3">
                   <Form.Label>
-                    {t('image.form_image.fields.description.label')}
+                    {`${t('image.form_image.fields.desc.label')} ${t(
+                      'optional',
+                      {
+                        keyPrefix: 'form',
+                      },
+                    )}`}
                   </Form.Label>
                   <Form.Control
                     type="text"
@@ -285,7 +393,9 @@ const Image: FC<IEditorContext> = ({ editor }) => {
 
                 <Form.Group controlId="editor.imgName" className="mb-3">
                   <Form.Label>
-                    {t('image.form_url.fields.name.label')}
+                    {`${t('image.form_url.fields.name.label')} ${t('optional', {
+                      keyPrefix: 'form',
+                    })}`}
                   </Form.Label>
                   <Form.Control
                     type="text"

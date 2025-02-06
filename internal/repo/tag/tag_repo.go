@@ -1,15 +1,33 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package tag
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/answerdev/answer/internal/base/data"
-	"github.com/answerdev/answer/internal/base/pager"
-	"github.com/answerdev/answer/internal/base/reason"
-	"github.com/answerdev/answer/internal/entity"
-	tagcommon "github.com/answerdev/answer/internal/service/tag_common"
-	"github.com/answerdev/answer/internal/service/unique"
+	"github.com/apache/answer/internal/base/data"
+	"github.com/apache/answer/internal/base/reason"
+	"github.com/apache/answer/internal/entity"
+	"github.com/apache/answer/internal/service/tag_common"
+	"github.com/apache/answer/internal/service/unique"
+	"github.com/apache/answer/pkg/converter"
 	"github.com/segmentfault/pacman/errors"
 	"xorm.io/builder"
 )
@@ -24,82 +42,16 @@ type tagRepo struct {
 func NewTagRepo(
 	data *data.Data,
 	uniqueIDRepo unique.UniqueIDRepo,
-) tagcommon.TagRepo {
+) tag_common.TagRepo {
 	return &tagRepo{
 		data:         data,
 		uniqueIDRepo: uniqueIDRepo,
 	}
 }
 
-// AddTagList add tag
-func (tr *tagRepo) AddTagList(ctx context.Context, tagList []*entity.Tag) (err error) {
-	for _, item := range tagList {
-		ID, err := tr.uniqueIDRepo.GenUniqueID(ctx, item.TableName())
-		if err != nil {
-			return err
-		}
-		item.RevisionID = "0"
-		item.ID = fmt.Sprintf("%d", ID)
-	}
-	_, err = tr.data.DB.Insert(tagList)
-	if err != nil {
-		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
-	}
-	return
-}
-
-// GetTagListByIDs get tag list all
-func (tr *tagRepo) GetTagListByIDs(ctx context.Context, ids []string) (tagList []*entity.Tag, err error) {
-	tagList = make([]*entity.Tag, 0)
-	session := tr.data.DB.In("id", ids)
-	session.Where(builder.Eq{"status": entity.TagStatusAvailable})
-	err = session.Find(&tagList)
-	if err != nil {
-		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
-	}
-	return
-}
-
-// GetTagBySlugName get tag by slug name
-func (tr *tagRepo) GetTagBySlugName(ctx context.Context, slugName string) (tagInfo *entity.Tag, exist bool, err error) {
-	tagInfo = &entity.Tag{}
-	session := tr.data.DB.Where("slug_name = ?", slugName)
-	session.Where(builder.Eq{"status": entity.TagStatusAvailable})
-	exist, err = session.Get(tagInfo)
-	if err != nil {
-		return nil, false, errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
-	}
-	return
-}
-
-// GetTagListByName get tag list all like name
-func (tr *tagRepo) GetTagListByName(ctx context.Context, name string, limit int) (tagList []*entity.Tag, err error) {
-	tagList = make([]*entity.Tag, 0)
-	session := tr.data.DB.Where("slug_name LIKE ?", name+"%")
-	session.Where(builder.Eq{"status": entity.TagStatusAvailable})
-	session.Limit(limit).Asc("slug_name")
-	err = session.Find(&tagList)
-	if err != nil {
-		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
-	}
-	return
-}
-
-// GetTagListByNames get tag list all like name
-func (tr *tagRepo) GetTagListByNames(ctx context.Context, names []string) (tagList []*entity.Tag, err error) {
-	tagList = make([]*entity.Tag, 0)
-	session := tr.data.DB.In("slug_name", names)
-	session.Where(builder.Eq{"status": entity.TagStatusAvailable})
-	err = session.Find(&tagList)
-	if err != nil {
-		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
-	}
-	return
-}
-
 // RemoveTag delete tag
 func (tr *tagRepo) RemoveTag(ctx context.Context, tagID string) (err error) {
-	session := tr.data.DB.Where(builder.Eq{"id": tagID})
+	session := tr.data.DB.Context(ctx).Where(builder.Eq{"id": tagID})
 	_, err = session.Update(&entity.Tag{Status: entity.TagStatusDeleted})
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
@@ -109,41 +61,36 @@ func (tr *tagRepo) RemoveTag(ctx context.Context, tagID string) (err error) {
 
 // UpdateTag update tag
 func (tr *tagRepo) UpdateTag(ctx context.Context, tag *entity.Tag) (err error) {
-	_, err = tr.data.DB.Where(builder.Eq{"id": tag.ID}).Update(tag)
+	_, err = tr.data.DB.Context(ctx).Where(builder.Eq{"id": tag.ID}).Update(tag)
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
 	return
 }
 
-// UpdateTagQuestionCount update tag question count
-func (tr *tagRepo) UpdateTagQuestionCount(ctx context.Context, tagID string, questionCount int) (err error) {
-	cond := &entity.Tag{QuestionCount: questionCount}
-	_, err = tr.data.DB.Where(builder.Eq{"id": tagID}).MustCols("question_count").Update(cond)
+// RecoverTag recover deleted tag
+func (tr *tagRepo) RecoverTag(ctx context.Context, tagID string) (err error) {
+	_, err = tr.data.DB.Context(ctx).ID(tagID).Update(&entity.Tag{Status: entity.TagStatusAvailable})
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
 	return
 }
 
-// UpdateTagSynonym update synonym tag
-func (tr *tagRepo) UpdateTagSynonym(ctx context.Context, tagSlugNameList []string, mainTagID int64,
-	mainTagSlugName string) (err error) {
-	bean := &entity.Tag{MainTagID: mainTagID, MainTagSlugName: mainTagSlugName}
-	session := tr.data.DB.In("slug_name", tagSlugNameList).MustCols("main_tag_id", "main_tag_slug_name")
-	_, err = session.Update(bean)
-	if err != nil {
-		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
-	}
-	return
-}
-
-// GetTagByID get tag one
-func (tr *tagRepo) GetTagByID(ctx context.Context, tagID string) (
+// MustGetTagByNameOrID get tag by name or id
+func (tr *tagRepo) MustGetTagByNameOrID(ctx context.Context, tagID, slugName string) (
 	tag *entity.Tag, exist bool, err error) {
+	if len(tagID) == 0 && len(slugName) == 0 {
+		return nil, false, nil
+	}
 	tag = &entity.Tag{}
-	session := tr.data.DB.Where(builder.Eq{"id": tagID})
-	session.Where(builder.Eq{"status": entity.TagStatusAvailable})
+	session := tr.data.DB.Context(ctx)
+	if len(tagID) > 0 {
+		session.ID(tagID)
+	}
+	if len(slugName) > 0 {
+		session.Where(builder.Eq{"slug_name": slugName})
+	}
 	exist, err = session.Get(tag)
 	if err != nil {
 		return nil, false, errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
@@ -151,40 +98,41 @@ func (tr *tagRepo) GetTagByID(ctx context.Context, tagID string) (
 	return
 }
 
-// GetTagList get tag list all
-func (tr *tagRepo) GetTagList(ctx context.Context, tag *entity.Tag) (tagList []*entity.Tag, err error) {
-	tagList = make([]*entity.Tag, 0)
-	session := tr.data.DB.Where(builder.Eq{"status": entity.TagStatusAvailable})
-	err = session.Find(&tagList, tag)
+// UpdateTagSynonym update synonym tag
+func (tr *tagRepo) UpdateTagSynonym(ctx context.Context, tagSlugNameList []string, mainTagID int64,
+	mainTagSlugName string,
+) (err error) {
+	bean := &entity.Tag{MainTagID: mainTagID, MainTagSlugName: mainTagSlugName}
+	session := tr.data.DB.Context(ctx).In("slug_name", tagSlugNameList).MustCols("main_tag_id", "main_tag_slug_name")
+	_, err = session.Update(bean)
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}
 	return
 }
 
-// GetTagPage get tag page
-func (tr *tagRepo) GetTagPage(ctx context.Context, page, pageSize int, tag *entity.Tag, queryCond string) (
-	tagList []*entity.Tag, total int64, err error) {
+func (tr *tagRepo) GetTagSynonymCount(ctx context.Context, tagID string) (count int64, err error) {
+	count, err = tr.data.DB.Context(ctx).Count(&entity.Tag{MainTagID: converter.StringToInt64(tagID), Status: entity.TagStatusAvailable})
+	if err != nil {
+		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	}
+	return
+}
+
+func (tr *tagRepo) GetIDsByMainTagId(ctx context.Context, mainTagID string) (tagIDs []string, err error) {
+	session := tr.data.DB.Context(ctx).Table(entity.Tag{}.TableName()).Where(builder.Eq{"status": entity.TagStatusAvailable, "main_tag_id": converter.StringToInt64(mainTagID)}).Cols("id")
+	err = session.Find(&tagIDs)
+	if err != nil {
+		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
+	}
+	return
+}
+
+// GetTagList get tag list all
+func (tr *tagRepo) GetTagList(ctx context.Context, tag *entity.Tag) (tagList []*entity.Tag, err error) {
 	tagList = make([]*entity.Tag, 0)
-	session := tr.data.DB.NewSession()
-
-	if len(tag.SlugName) > 0 {
-		session.Where(builder.Or(builder.Like{"slug_name", tag.SlugName}, builder.Like{"display_name", tag.SlugName}))
-		tag.SlugName = ""
-	}
-	session.Where(builder.Eq{"status": entity.TagStatusAvailable})
-	session.Where("main_tag_id = 0") // if this tag is synonym, exclude it
-
-	switch queryCond {
-	case "popular":
-		session.Desc("question_count")
-	case "name":
-		session.Asc("slug_name")
-	case "newest":
-		session.Desc("created_at")
-	}
-
-	total, err = pager.Help(page, pageSize, &tagList, tag, session)
+	session := tr.data.DB.Context(ctx).Where(builder.Eq{"status": entity.TagStatusAvailable})
+	err = session.Find(&tagList, tag)
 	if err != nil {
 		err = errors.InternalServer(reason.DatabaseError).WithError(err).WithStack()
 	}

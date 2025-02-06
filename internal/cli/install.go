@@ -1,60 +1,96 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package cli
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
-	"github.com/answerdev/answer/configs"
-	"github.com/answerdev/answer/i18n"
-	"github.com/answerdev/answer/pkg/dir"
+	"github.com/apache/answer/configs"
+	"github.com/apache/answer/i18n"
+	"github.com/apache/answer/pkg/dir"
+	"github.com/apache/answer/pkg/writer"
 )
 
 const (
-	DefaultConfigFileName = "config.yaml"
+	DefaultConfigFileName                  = "config.yaml"
+	DefaultCacheFileName                   = "cache.db"
+	DefaultReservedUsernamesConfigFileName = "reserved-usernames.json"
 )
 
 var (
-	ConfigFilePath = "/conf/"
-	UploadFilePath = "/upfiles/"
-	I18nPath       = "/i18n/"
+	ConfigFileDir     = "/conf/"
+	UploadFilePath    = "/uploads/"
+	I18nPath          = "/i18n/"
+	CacheDir          = "/cache/"
+	formatAllPathONCE sync.Once
 )
+
+// GetConfigFilePath get config file path
+func GetConfigFilePath() string {
+	return filepath.Join(ConfigFileDir, DefaultConfigFileName)
+}
+
+func FormatAllPath(dataDirPath string) {
+	formatAllPathONCE.Do(func() {
+		ConfigFileDir = filepath.Join(dataDirPath, ConfigFileDir)
+		UploadFilePath = filepath.Join(dataDirPath, UploadFilePath)
+		I18nPath = filepath.Join(dataDirPath, I18nPath)
+		CacheDir = filepath.Join(dataDirPath, CacheDir)
+	})
+}
 
 // InstallAllInitialEnvironment install all initial environment
 func InstallAllInitialEnvironment(dataDirPath string) {
-	ConfigFilePath = filepath.Join(dataDirPath, ConfigFilePath)
-	UploadFilePath = filepath.Join(dataDirPath, UploadFilePath)
-	I18nPath = filepath.Join(dataDirPath, I18nPath)
-
-	installConfigFile()
+	FormatAllPath(dataDirPath)
 	installUploadDir()
-	installI18nBundle()
+	InstallI18nBundle(false)
 	fmt.Println("install all initial environment done")
-	return
 }
 
-func installConfigFile() {
-	fmt.Println("[config-file] try to install...")
-	defaultConfigFile := filepath.Join(ConfigFilePath, DefaultConfigFileName)
+func InstallConfigFile(configFilePath string) error {
+	if len(configFilePath) == 0 {
+		configFilePath = filepath.Join(ConfigFileDir, DefaultConfigFileName)
+	}
+	fmt.Println("[config-file] try to create at ", configFilePath)
 
 	// if config file already exists do nothing.
-	if CheckConfigFile(defaultConfigFile) {
-		fmt.Printf("[config-file] %s already exists\n", defaultConfigFile)
-		return
+	if CheckConfigFile(configFilePath) {
+		fmt.Printf("[config-file] %s already exists\n", configFilePath)
+		return nil
 	}
 
-	if err := dir.CreateDirIfNotExist(ConfigFilePath); err != nil {
+	if err := dir.CreateDirIfNotExist(ConfigFileDir); err != nil {
 		fmt.Printf("[config-file] create directory fail %s\n", err.Error())
-		return
+		return fmt.Errorf("create directory fail %s", err.Error())
 	}
-	fmt.Printf("[config-file] create directory success, config file is %s\n", defaultConfigFile)
+	fmt.Printf("[config-file] create directory success, config file is %s\n", configFilePath)
 
-	if err := writerFile(defaultConfigFile, string(configs.Config)); err != nil {
+	if err := writer.WriteFile(configFilePath, string(configs.Config)); err != nil {
 		fmt.Printf("[config-file] install fail %s\n", err.Error())
-		return
+		return fmt.Errorf("write file failed %s", err)
 	}
 	fmt.Printf("[config-file] install success\n")
+	return nil
 }
 
 func installUploadDir() {
@@ -66,8 +102,12 @@ func installUploadDir() {
 	}
 }
 
-func installI18nBundle() {
+func InstallI18nBundle(replace bool) {
 	fmt.Println("[i18n] try to install i18n bundle...")
+	// if SKIP_REPLACE_I18N is set, skip replace i18n bundles
+	if len(os.Getenv("SKIP_REPLACE_I18N")) > 0 {
+		replace = false
+	}
 	if err := dir.CreateDirIfNotExist(I18nPath); err != nil {
 		fmt.Println(err.Error())
 		return
@@ -85,30 +125,22 @@ func installI18nBundle() {
 		if err != nil {
 			continue
 		}
+		exist := dir.CheckFileExist(path)
+		if exist && !replace {
+			continue
+		}
+		if exist {
+			fmt.Printf("[i18n] install %s file exist, try to replace it\n", item.Name())
+			if err = os.Remove(path); err != nil {
+				fmt.Println(err)
+			}
+		}
 		fmt.Printf("[i18n] install %s bundle...\n", item.Name())
-		err = writerFile(path, string(content))
+		err = writer.WriteFile(path, string(content))
 		if err != nil {
 			fmt.Printf("[i18n] install %s bundle fail: %s\n", item.Name(), err.Error())
 		} else {
 			fmt.Printf("[i18n] install %s bundle success\n", item.Name())
 		}
 	}
-}
-
-func writerFile(filePath, content string) error {
-	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = file.Close()
-	}()
-	writer := bufio.NewWriter(file)
-	if _, err := writer.WriteString(content); err != nil {
-		return err
-	}
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-	return nil
 }

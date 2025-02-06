@@ -1,15 +1,40 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import React, { FC, FormEvent, useState } from 'react';
 import { Form, Button } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
-import { modifyPassword } from '@answer/api';
-import { useToast } from '@answer/hooks';
-import type { FormDataType } from '@answer/common/interface';
+import classname from 'classnames';
+
+import { useToast } from '@/hooks';
+import { useCaptchaPlugin } from '@/utils/pluginKit';
+import type { FormDataType } from '@/common/interface';
+import { modifyPassword } from '@/services';
+import { handleFormError, scrollToElementTop } from '@/utils';
+import { loggedUserInfoStore } from '@/stores';
 
 const Index: FC = () => {
   const { t } = useTranslation('translation', {
     keyPrefix: 'settings.account',
   });
+  const { user } = loggedUserInfoStore();
   const [showForm, setFormState] = useState(false);
   const toast = useToast();
   const [formData, setFormData] = useState<FormDataType>({
@@ -30,6 +55,8 @@ const Index: FC = () => {
     },
   });
 
+  const infoCaptcha = useCaptchaPlugin('edit_userinfo');
+
   const handleFormState = () => {
     setFormState((pre) => !pre);
   };
@@ -41,8 +68,7 @@ const Index: FC = () => {
   const checkValidated = (): boolean => {
     let bol = true;
     const { old_pass, pass, pass2 } = formData;
-
-    if (!old_pass.value) {
+    if (!old_pass.value && user.have_password) {
       bol = false;
       formData.old_pass = {
         value: '',
@@ -97,7 +123,49 @@ const Index: FC = () => {
     setFormData({
       ...formData,
     });
+    if (!bol) {
+      const errObj = Object.keys(formData).filter(
+        (key) => formData[key].isInvalid,
+      );
+      const ele = document.getElementById(errObj[0]);
+      scrollToElementTop(ele);
+    }
+
     return bol;
+  };
+
+  const postModifyPass = (event?: any) => {
+    if (event) {
+      event.preventDefault();
+    }
+    const params: any = {
+      old_pass: formData.old_pass.value,
+      pass: formData.pass.value,
+    };
+
+    const imgCode = infoCaptcha?.getCaptcha();
+    if (imgCode?.verify) {
+      params.captcha_code = imgCode.captcha_code;
+      params.captcha_id = imgCode.captcha_id;
+    }
+    modifyPassword(params)
+      .then(async () => {
+        await infoCaptcha?.close();
+        toast.onShow({
+          msg: t('update_password', { keyPrefix: 'toast' }),
+          variant: 'success',
+        });
+        handleFormState();
+      })
+      .catch((err) => {
+        if (err.isError) {
+          infoCaptcha?.handleCaptchaError(err.list);
+          const data = handleFormError(err, formData);
+          setFormData({ ...data });
+          const ele = document.getElementById(err.list[0].error_field);
+          scrollToElementTop(ele);
+        }
+      });
   };
 
   const handleSubmit = (event: FormEvent) => {
@@ -106,38 +174,29 @@ const Index: FC = () => {
     if (!checkValidated()) {
       return;
     }
-    modifyPassword({
-      old_pass: formData.old_pass.value,
-      pass: formData.pass.value,
-    })
-      .then(() => {
-        toast.onShow({
-          msg: t('update_password', { keyPrefix: 'toast' }),
-          variant: 'success',
-        });
-        handleFormState();
-      })
-      .catch((err) => {
-        if (err.isError && err.key) {
-          formData[err.key].isInvalid = true;
-          formData[err.key].errorMsg = err.value;
-        }
-        setFormData({ ...formData });
-      });
+    if (!infoCaptcha) {
+      postModifyPass();
+      return;
+    }
+
+    infoCaptcha.check(() => {
+      postModifyPass();
+    });
   };
 
   return (
     <div className="mt-5">
       {showForm ? (
         <Form noValidate onSubmit={handleSubmit}>
-          <Form.Group controlId="oldPass" className="mb-3">
+          <Form.Group
+            controlId="old_pass"
+            className={classname('mb-3', user.have_password ? '' : 'd-none')}>
             <Form.Label>{t('current_pass.label')}</Form.Label>
             <Form.Control
               autoComplete="off"
               required
               type="password"
               placeholder=""
-              // value={formData.password.value}
               isInvalid={formData.old_pass.isInvalid}
               onChange={(e) =>
                 handleChange({
@@ -154,14 +213,12 @@ const Index: FC = () => {
             </Form.Control.Feedback>
           </Form.Group>
 
-          <Form.Group controlId="newPass" className="mb-3">
+          <Form.Group controlId="new_pass" className="mb-3">
             <Form.Label>{t('new_pass.label')}</Form.Label>
             <Form.Control
               autoComplete="off"
               required
               type="password"
-              maxLength={32}
-              // value={formData.password.value}
               isInvalid={formData.pass.isInvalid}
               onChange={(e) =>
                 handleChange({
@@ -178,14 +235,12 @@ const Index: FC = () => {
             </Form.Control.Feedback>
           </Form.Group>
 
-          <Form.Group controlId="newPass2" className="mb-3">
+          <Form.Group controlId="pass2" className="mb-3">
             <Form.Label>{t('pass_confirm.label')}</Form.Label>
             <Form.Control
               autoComplete="off"
               required
               type="password"
-              maxLength={32}
-              // value={formData.password.value}
               isInvalid={formData.pass2.isInvalid}
               onChange={(e) =>
                 handleChange({
@@ -218,7 +273,9 @@ const Index: FC = () => {
           <Button
             variant="outline-secondary"
             type="submit"
-            onClick={handleFormState}>
+            onClick={() => {
+              handleFormState();
+            }}>
             {t('change_pass_btn')}
           </Button>
         </>

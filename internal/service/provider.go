@@ -1,31 +1,68 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package service
 
 import (
-	"github.com/answerdev/answer/internal/service/action"
-	"github.com/answerdev/answer/internal/service/activity"
-	answercommon "github.com/answerdev/answer/internal/service/answer_common"
-	"github.com/answerdev/answer/internal/service/auth"
-	collectioncommon "github.com/answerdev/answer/internal/service/collection_common"
-	"github.com/answerdev/answer/internal/service/comment"
-	"github.com/answerdev/answer/internal/service/comment_common"
-	"github.com/answerdev/answer/internal/service/export"
-	"github.com/answerdev/answer/internal/service/follow"
-	"github.com/answerdev/answer/internal/service/meta"
-	"github.com/answerdev/answer/internal/service/notification"
-	notficationcommon "github.com/answerdev/answer/internal/service/notification_common"
-	"github.com/answerdev/answer/internal/service/object_info"
-	questioncommon "github.com/answerdev/answer/internal/service/question_common"
-	"github.com/answerdev/answer/internal/service/rank"
-	"github.com/answerdev/answer/internal/service/reason"
-	"github.com/answerdev/answer/internal/service/report"
-	"github.com/answerdev/answer/internal/service/report_backyard"
-	"github.com/answerdev/answer/internal/service/report_handle_backyard"
-	"github.com/answerdev/answer/internal/service/revision_common"
-	"github.com/answerdev/answer/internal/service/tag"
-	tagcommon "github.com/answerdev/answer/internal/service/tag_common"
-	"github.com/answerdev/answer/internal/service/uploader"
-	"github.com/answerdev/answer/internal/service/user_backyard"
-	usercommon "github.com/answerdev/answer/internal/service/user_common"
+	"github.com/apache/answer/internal/service/action"
+	"github.com/apache/answer/internal/service/activity"
+	"github.com/apache/answer/internal/service/activity_common"
+	"github.com/apache/answer/internal/service/activity_queue"
+	answercommon "github.com/apache/answer/internal/service/answer_common"
+	"github.com/apache/answer/internal/service/auth"
+	"github.com/apache/answer/internal/service/badge"
+	"github.com/apache/answer/internal/service/collection"
+	collectioncommon "github.com/apache/answer/internal/service/collection_common"
+	"github.com/apache/answer/internal/service/comment"
+	"github.com/apache/answer/internal/service/comment_common"
+	"github.com/apache/answer/internal/service/config"
+	"github.com/apache/answer/internal/service/content"
+	"github.com/apache/answer/internal/service/dashboard"
+	"github.com/apache/answer/internal/service/event_queue"
+	"github.com/apache/answer/internal/service/export"
+	"github.com/apache/answer/internal/service/follow"
+	"github.com/apache/answer/internal/service/importer"
+	"github.com/apache/answer/internal/service/meta"
+	"github.com/apache/answer/internal/service/meta_common"
+	"github.com/apache/answer/internal/service/notice_queue"
+	"github.com/apache/answer/internal/service/notification"
+	notficationcommon "github.com/apache/answer/internal/service/notification_common"
+	"github.com/apache/answer/internal/service/object_info"
+	"github.com/apache/answer/internal/service/plugin_common"
+	questioncommon "github.com/apache/answer/internal/service/question_common"
+	"github.com/apache/answer/internal/service/rank"
+	"github.com/apache/answer/internal/service/reason"
+	"github.com/apache/answer/internal/service/report"
+	"github.com/apache/answer/internal/service/report_handle"
+	"github.com/apache/answer/internal/service/review"
+	"github.com/apache/answer/internal/service/revision_common"
+	"github.com/apache/answer/internal/service/role"
+	"github.com/apache/answer/internal/service/search_parser"
+	"github.com/apache/answer/internal/service/siteinfo"
+	"github.com/apache/answer/internal/service/siteinfo_common"
+	"github.com/apache/answer/internal/service/tag"
+	tagcommon "github.com/apache/answer/internal/service/tag_common"
+	"github.com/apache/answer/internal/service/uploader"
+	"github.com/apache/answer/internal/service/user_admin"
+	usercommon "github.com/apache/answer/internal/service/user_common"
+	"github.com/apache/answer/internal/service/user_external_login"
+	"github.com/apache/answer/internal/service/user_notification_config"
 	"github.com/google/wire"
 )
 
@@ -34,16 +71,16 @@ var ProviderSetService = wire.NewSet(
 	comment.NewCommentService,
 	comment_common.NewCommentCommonService,
 	report.NewReportService,
-	NewVoteService,
+	content.NewVoteService,
 	tag.NewTagService,
 	follow.NewFollowService,
-	NewCollectionGroupService,
-	NewCollectionService,
+	collection.NewCollectionGroupService,
+	collection.NewCollectionService,
 	action.NewCaptchaService,
 	auth.NewAuthService,
-	NewUserService,
-	NewQuestionService,
-	NewAnswerService,
+	content.NewUserService,
+	content.NewQuestionService,
+	content.NewAnswerService,
 	export.NewEmailService,
 	tagcommon.NewTagCommonService,
 	usercommon.NewUserCommon,
@@ -52,17 +89,41 @@ var ProviderSetService = wire.NewSet(
 	uploader.NewUploaderService,
 	collectioncommon.NewCollectionCommon,
 	revision_common.NewRevisionService,
-	NewRevisionService,
+	content.NewRevisionService,
 	rank.NewRankService,
-	NewSearchService,
-	meta.NewMetaService,
+	search_parser.NewSearchParser,
+	content.NewSearchService,
+	metacommon.NewMetaCommonService,
 	object_info.NewObjService,
-	report_handle_backyard.NewReportHandle,
-	report_backyard.NewReportBackyardService,
-	user_backyard.NewUserBackyardService,
+	report_handle.NewReportHandle,
+	user_admin.NewUserAdminService,
 	reason.NewReasonService,
-	NewSiteInfoService,
+	siteinfo_common.NewSiteInfoCommonService,
+	siteinfo.NewSiteInfoService,
 	notficationcommon.NewNotificationCommon,
 	notification.NewNotificationService,
 	activity.NewAnswerActivityService,
+	dashboard.NewDashboardService,
+	activity_common.NewActivityCommon,
+	activity.NewActivityService,
+	role.NewRoleService,
+	role.NewUserRoleRelService,
+	role.NewRolePowerRelService,
+	user_external_login.NewUserExternalLoginService,
+	user_external_login.NewUserCenterLoginService,
+	plugin_common.NewPluginCommonService,
+	config.NewConfigService,
+	notice_queue.NewNotificationQueueService,
+	activity_queue.NewActivityQueueService,
+	user_notification_config.NewUserNotificationConfigService,
+	notification.NewExternalNotificationService,
+	notice_queue.NewNewQuestionNotificationQueueService,
+	review.NewReviewService,
+	meta.NewMetaService,
+	event_queue.NewEventQueueService,
+	badge.NewBadgeService,
+	badge.NewBadgeEventService,
+	badge.NewBadgeAwardService,
+	badge.NewBadgeGroupService,
+	importer.NewImporterService,
 )

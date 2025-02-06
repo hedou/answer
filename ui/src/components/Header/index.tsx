@@ -1,3 +1,22 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import { FC, memo, useState, useEffect } from 'react';
 import {
   Navbar,
@@ -5,21 +24,30 @@ import {
   Nav,
   Form,
   FormControl,
-  Button,
   Col,
 } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 import {
   useSearchParams,
-  NavLink,
   Link,
   useNavigate,
   useLocation,
+  useMatch,
 } from 'react-router-dom';
 
-import { userInfoStore, siteInfoStore, interfaceStore } from '@answer/stores';
-import { logout, useQueryNotificationStatus } from '@answer/api';
-import Storage from '@answer/utils/storage';
+import classnames from 'classnames';
+
+import { userCenter, floppyNavigation } from '@/utils';
+import {
+  loggedUserInfoStore,
+  siteInfoStore,
+  brandingStore,
+  loginSettingStore,
+  themeSettingStore,
+  sideNavStore,
+} from '@/stores';
+import { logout, useQueryNotificationStatus } from '@/services';
+import { Icon } from '@/components';
 
 import NavItems from './components/NavItems';
 
@@ -27,28 +55,54 @@ import './index.scss';
 
 const Header: FC = () => {
   const navigate = useNavigate();
-  const { user, clear } = userInfoStore();
-  const { t } = useTranslation();
+  const location = useLocation();
   const [urlSearch] = useSearchParams();
   const q = urlSearch.get('q');
+  const { user, clear: clearUserStore } = loggedUserInfoStore();
+  const { t } = useTranslation();
   const [searchStr, setSearch] = useState('');
   const siteInfo = siteInfoStore((state) => state.siteInfo);
-  const { interface: interfaceInfo } = interfaceStore();
+  const brandingInfo = brandingStore((state) => state.branding);
+  const loginSetting = loginSettingStore((state) => state.login);
+  const { updateReview, updateVisible } = sideNavStore();
   const { data: redDot } = useQueryNotificationStatus();
-  const location = useLocation();
+  /**
+   * Automatically append `tag` information when creating a question
+   */
+  const tagMatch = useMatch('/tags/:slugName');
+  let askUrl = '/questions/ask';
+  if (tagMatch && tagMatch.params.slugName) {
+    askUrl = `${askUrl}?tags=${encodeURIComponent(tagMatch.params.slugName)}`;
+  }
+
+  useEffect(() => {
+    updateReview({
+      can_revision: Boolean(redDot?.can_revision),
+      revision: Number(redDot?.revision),
+    });
+  }, [redDot]);
+
   const handleInput = (val) => {
     setSearch(val);
   };
+  const handleSearch = (evt) => {
+    evt.preventDefault();
+    if (!searchStr) {
+      return;
+    }
+    const searchUrl = `/search?q=${encodeURIComponent(searchStr)}`;
+    navigate(searchUrl);
+  };
 
-  const handleLogout = async () => {
+  const handleLogout = async (evt) => {
+    evt.preventDefault();
     await logout();
-    Storage.remove('token');
-    clear();
-    navigate('/');
+    clearUserStore();
+    window.location.replace(window.location.href);
   };
 
   useEffect(() => {
-    if (q) {
+    if (q && location.pathname === '/search') {
       handleInput(q);
     }
   }, [q]);
@@ -61,72 +115,106 @@ const Header: FC = () => {
         toggle?.click();
       }
     }
+
+    // clear search input when navigate to other page
+    if (location.pathname !== '/search' && searchStr) {
+      setSearch('');
+    }
   }, [location.pathname]);
 
+  let navbarStyle = 'theme-colored';
+  const { theme, theme_config } = themeSettingStore((_) => _);
+  if (theme_config?.[theme]?.navbar_style) {
+    navbarStyle = `theme-${theme_config[theme].navbar_style}`;
+  }
+
   return (
-    <Navbar variant="dark" expand="lg" className="sticky-top" id="header">
+    <Navbar
+      variant={navbarStyle === 'theme-colored' ? 'dark' : ''}
+      expand="lg"
+      className={classnames('sticky-top', navbarStyle)}
+      id="header">
       <Container className="d-flex align-items-center">
         <Navbar.Toggle
           aria-controls="navBarContent"
           className="answer-navBar me-2"
           id="navBarToggle"
+          onClick={() => {
+            updateVisible();
+          }}
         />
 
-        <div className="left-wrap d-flex justify-content-between align-items-center nav-grow">
-          <Navbar.Brand to="/" as={Link} className="lh-1">
-            {interfaceInfo.logo ? (
-              <img
-                className="logo rounded-1 me-0"
-                src={interfaceInfo.logo}
-                alt=""
-              />
+        <div className="d-flex justify-content-between align-items-center nav-grow flex-nowrap">
+          <Navbar.Brand to="/" as={Link} className="lh-1 me-0 me-sm-5 p-0">
+            {brandingInfo.logo ? (
+              <>
+                <img
+                  className="d-none d-lg-block logo me-0"
+                  src={brandingInfo.logo}
+                  alt={siteInfo.name}
+                />
+
+                <img
+                  className="lg-none logo me-0"
+                  src={brandingInfo.mobile_logo || brandingInfo.logo}
+                  alt={siteInfo.name}
+                />
+              </>
             ) : (
-              <span>{siteInfo.name || 'Answer'}</span>
+              <span>{siteInfo.name}</span>
             )}
           </Navbar.Brand>
 
           {/* mobile nav */}
           <div className="d-flex lg-none align-items-center flex-lg-nowrap">
             {user?.username ? (
-              <NavItems redDot={redDot} userInfo={user} logOut={handleLogout} />
+              <NavItems
+                redDot={redDot}
+                userInfo={user}
+                logOut={(e) => handleLogout(e)}
+              />
             ) : (
               <>
-                <Button
-                  variant="link"
-                  className="me-2 text-white"
-                  href="/users/login">
+                <Link
+                  className={classnames('me-2 btn btn-link', {
+                    'link-light': navbarStyle === 'theme-colored',
+                    'link-primary': navbarStyle !== 'theme-colored',
+                  })}
+                  onClick={() => floppyNavigation.storageLoginRedirect()}
+                  to={userCenter.getLoginUrl()}>
                   {t('btns.login')}
-                </Button>
-                <Button variant="light" href="/users/register">
-                  {t('btns.signup')}
-                </Button>
+                </Link>
+                {loginSetting.allow_new_registrations && (
+                  <Link
+                    className={classnames(
+                      'btn',
+                      navbarStyle === 'theme-colored'
+                        ? 'btn-light'
+                        : 'btn-primary',
+                    )}
+                    to={userCenter.getSignUpUrl()}>
+                    {t('btns.signup')}
+                  </Link>
+                )}
               </>
             )}
           </div>
         </div>
 
         <Navbar.Collapse id="navBarContent" className="me-auto">
-          <hr className="hr lg-none mb-2" style={{ marginTop: '12px' }} />
-          <Col md={4}>
-            <Nav>
-              <NavLink className="nav-link" to="/questions">
-                {t('header.nav.question')}
-              </NavLink>
-              <NavLink className="nav-link" to="/tags">
-                {t('header.nav.tag')}
-              </NavLink>
-              <NavLink className="nav-link d-none" to="/users">
-                {t('header.nav.user')}
-              </NavLink>
-            </Nav>
-          </Col>
-          <hr className="hr lg-none mt-2" />
-
-          <Col lg={4} className="d-flex justify-content-center">
-            <Form action="/search" className="w-75 px-0 px-lg-2">
+          <hr className="hr lg-none mb-3" style={{ marginTop: '12px' }} />
+          <Col lg={8} className="ps-0">
+            <Form
+              action="/search"
+              className="w-100 maxw-400 position-relative"
+              onSubmit={handleSearch}>
+              <div className="search-wrap" onClick={handleSearch}>
+                <Icon name="search" className="search-icon" />
+              </div>
               <FormControl
+                type="search"
                 placeholder={t('header.search.placeholder')}
-                className="text-white placeholder-search"
+                className="placeholder-search"
                 value={searchStr}
                 name="q"
                 onChange={(e) => handleInput(e.target.value)}
@@ -136,7 +224,7 @@ const Header: FC = () => {
 
           <Nav.Item className="lg-none mt-3 pb-1">
             <Link
-              to="/questions/ask"
+              to={askUrl}
               className="text-capitalize text-nowrap btn btn-light">
               {t('btns.add_question')}
             </Link>
@@ -149,8 +237,11 @@ const Header: FC = () => {
               <Nav className="d-flex align-items-center flex-lg-nowrap">
                 <Nav.Item className="me-3">
                   <Link
-                    to="/questions/ask"
-                    className="text-capitalize text-nowrap btn btn-light">
+                    to={askUrl}
+                    className={classnames('text-capitalize text-nowrap btn', {
+                      'btn-light': navbarStyle !== 'theme-light',
+                      'btn-primary': navbarStyle === 'theme-light',
+                    })}>
                     {t('btns.add_question')}
                   </Link>
                 </Nav.Item>
@@ -163,15 +254,27 @@ const Header: FC = () => {
               </Nav>
             ) : (
               <>
-                <Button
-                  variant="link"
-                  className="me-2 text-white"
-                  href="/users/login">
+                <Link
+                  className={classnames('me-2 btn btn-link', {
+                    'link-light': navbarStyle === 'theme-colored',
+                    'link-primary': navbarStyle !== 'theme-colored',
+                  })}
+                  onClick={() => floppyNavigation.storageLoginRedirect()}
+                  to={userCenter.getLoginUrl()}>
                   {t('btns.login')}
-                </Button>
-                <Button variant="light" href="/users/register">
-                  {t('btns.signup')}
-                </Button>
+                </Link>
+                {loginSetting.allow_new_registrations && (
+                  <Link
+                    className={classnames(
+                      'btn',
+                      navbarStyle === 'theme-colored'
+                        ? 'btn-light'
+                        : 'btn-primary',
+                    )}
+                    to={userCenter.getSignUpUrl()}>
+                    {t('btns.signup')}
+                  </Link>
+                )}
               </>
             )}
           </Col>

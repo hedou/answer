@@ -1,13 +1,33 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import { useLayoutEffect, useState } from 'react';
 import { Modal, Form, Button } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
 import ReactDOM from 'react-dom/client';
 
+import { TAG_SLUG_NAME_MAX_LENGTH } from '@/common/constants';
+
 const div = document.createElement('div');
 const root = ReactDOM.createRoot(div);
 
-const MAX_LENGTH = 35;
 interface IProps {
   title?: string;
   onConfirm?: (formData: any) => void;
@@ -39,8 +59,21 @@ const useTagModal = (props: IProps = {}) => {
     setVisibleState(false);
   };
 
-  const onShow = () => {
+  const onShow = (searchStr = '') => {
     setVisibleState(true);
+    setFormData({
+      ...formData,
+      displayName: {
+        value: searchStr,
+        isInvalid: false,
+        errorMsg: '',
+      },
+      slugName: {
+        value: searchStr,
+        isInvalid: false,
+        errorMsg: '',
+      },
+    });
   };
 
   const checkValidated = (): boolean => {
@@ -53,7 +86,7 @@ const useTagModal = (props: IProps = {}) => {
         isInvalid: true,
         errorMsg: t('form.fields.display_name.msg.empty'),
       };
-    } else if (displayName.value.length > MAX_LENGTH) {
+    } else if (displayName.value.length > TAG_SLUG_NAME_MAX_LENGTH) {
       bol = false;
       formData.displayName = {
         value: displayName.value,
@@ -75,20 +108,20 @@ const useTagModal = (props: IProps = {}) => {
         isInvalid: true,
         errorMsg: t('form.fields.slug_name.msg.empty'),
       };
-    } else if (slugName.value.length > MAX_LENGTH) {
+    } else if (slugName.value.length > TAG_SLUG_NAME_MAX_LENGTH) {
       bol = false;
       formData.slugName = {
         value: slugName.value,
         isInvalid: true,
         errorMsg: t('form.fields.slug_name.msg.range'),
       };
-    } else if (/[^a-z0-9+#\-.]/.test(slugName.value)) {
-      bol = false;
-      formData.slugName = {
-        value: slugName.value,
-        isInvalid: true,
-        errorMsg: t('form.fields.slug_name.msg.character'),
-      };
+      // } else if (/[^a-z0-9+#\-.]/.test(slugName.value)) {
+      //   bol = false;
+      //   formData.slugName = {
+      //     value: slugName.value,
+      //     isInvalid: true,
+      //     errorMsg: t('form.fields.slug_name.msg.character'),
+      //   };
     } else {
       formData.slugName = {
         value: slugName.value,
@@ -188,6 +221,7 @@ const useTagModal = (props: IProps = {}) => {
             <Form.Group controlId="displayName" className="mb-3">
               <Form.Label>{t('form.fields.display_name.label')}</Form.Label>
               <Form.Control
+                type="text"
                 value={formData.displayName.value}
                 onChange={handleDisplayNameChange}
                 isInvalid={formData.displayName.isInvalid}
@@ -199,20 +233,23 @@ const useTagModal = (props: IProps = {}) => {
             <Form.Group controlId="slugName" className="mb-3">
               <Form.Label>{t('form.fields.slug_name.label')}</Form.Label>
               <Form.Control
+                type="text"
                 value={formData.slugName.value}
                 onChange={handleSlugNameChange}
                 isInvalid={formData.slugName.isInvalid}
               />
 
               <Form.Text as="div">
-                {t('form.fields.slug_name.description')}
+                {t('form.fields.slug_name.msg.range')}
               </Form.Text>
               <Form.Control.Feedback type="invalid">
                 {formData.slugName.errorMsg}
               </Form.Control.Feedback>
             </Form.Group>
             <Form.Group controlId="description">
-              <Form.Label>{t('form.fields.description.label')}</Form.Label>
+              <Form.Label>{`${t('form.fields.desc.label')} ${t('optional', {
+                keyPrefix: 'form',
+              })}`}</Form.Label>
               <Form.Control
                 className="font-monospace"
                 value={formData.description.value}

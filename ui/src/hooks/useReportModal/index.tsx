@@ -1,12 +1,38 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Modal, Form, Button, FormCheck } from 'react-bootstrap';
 import { useTranslation } from 'react-i18next';
 
 import ReactDOM from 'react-dom/client';
 
-import { reportList, postReport, closeQuestion, putReport } from '@answer/api';
-import { useToast } from '@answer/hooks';
-import type * as Type from '@answer/common/interface';
+import { useToast } from '@/hooks';
+import { useCaptchaPlugin } from '@/utils/pluginKit';
+import type * as Type from '@/common/interface';
+import {
+  reportList,
+  postReport,
+  closeQuestion,
+  putReport,
+  putFlagReviewAction,
+} from '@/services';
 
 interface Params {
   isBackend?: boolean;
@@ -14,6 +40,9 @@ interface Params {
   id: string;
   title?: string;
   action: Type.ReportAction;
+  source?: string;
+  content?: string;
+  reportType?: any;
 }
 
 const useReportModal = (callback?: () => void) => {
@@ -37,21 +66,50 @@ const useReportModal = (callback?: () => void) => {
   const [show, setShow] = useState(false);
   const [list, setList] = useState<any[]>([]);
 
+  const rCaptcha = useCaptchaPlugin('report');
+
   useEffect(() => {
     const div = document.createElement('div');
     rootRef.current.root = ReactDOM.createRoot(div);
   }, []);
-  const getList = ({ type, action, isBackend }: Params) => {
-    reportList({ type, action, isBackend }).then((res) => {
+  const getList = ({ type, action, isBackend, ...otherParams }: Params) => {
+    // @ts-ignore
+    reportList({
+      type,
+      action,
+      isBackend,
+    }).then((res) => {
       setList(res);
+      if (otherParams.reportType) {
+        const findType = res.find(
+          (v) => v.reason_type === otherParams.reportType,
+        );
+        if (findType) {
+          setReportType({
+            type: findType.reason_type,
+            haveContent: Boolean(findType.content_type),
+          });
+
+          setContent({
+            value: otherParams.content || '',
+            isInvalid: false,
+            errorMsg: '',
+          });
+        }
+      }
       setShow(true);
     });
   };
-
+  const asyncCallback = () => {
+    setTimeout(() => {
+      callback?.();
+    });
+  };
   const handleRadio = (val) => {
     setInvalidState(false);
     setContent({
-      value: '',
+      value:
+        val.reason_type === params?.reportType ? String(params?.content) : '',
       isInvalid: false,
       errorMsg: '',
     });
@@ -62,12 +120,81 @@ const useReportModal = (callback?: () => void) => {
   };
 
   const onClose = () => {
+    setReportType({
+      type: -1,
+      haveContent: false,
+    });
     setContent({
       value: '',
       isInvalid: false,
       errorMsg: '',
     });
     setShow(false);
+  };
+
+  const checkValidate = () => {
+    if (reportType.haveContent && !content.value) {
+      setContent({
+        value: content.value,
+        isInvalid: true,
+        errorMsg: t('remark.empty'),
+      });
+      return false;
+    }
+
+    if (reportType.type === 60) {
+      // a duplicate
+      let url: URL | undefined;
+      try {
+        url = new URL(content.value);
+      } catch {
+        setContent({
+          value: content.value,
+          isInvalid: true,
+          errorMsg: t('msg.not_a_url'),
+        });
+      }
+      if (!url) return false;
+
+      if (url.origin !== window.location.origin) {
+        setContent({
+          value: content.value,
+          isInvalid: true,
+          errorMsg: t('msg.url_not_match'),
+        });
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  const submitReport = (data) => {
+    const flagReq = {
+      source: data.type,
+      report_type: reportType.type,
+      object_id: data.id,
+      content: content.value,
+      captcha_code: undefined,
+      captcha_id: undefined,
+    };
+    rCaptcha?.resolveCaptchaReq(flagReq);
+
+    postReport(flagReq)
+      .then(async () => {
+        await rCaptcha?.close();
+        toast.onShow({
+          msg: t('flag_success', { keyPrefix: 'toast' }),
+          variant: 'warning',
+        });
+        onClose();
+        asyncCallback();
+      })
+      .catch((ex) => {
+        if (ex.isError) {
+          rCaptcha?.handleCaptchaError(ex.list);
+        }
+      });
   };
 
   const handleSubmit = () => {
@@ -79,38 +206,40 @@ const useReportModal = (callback?: () => void) => {
       return;
     }
 
-    if (reportType.haveContent && !content.value) {
-      setContent({
-        value: content.value,
-        isInvalid: true,
-        errorMsg: t('remark.empty'),
-      });
+    if (!checkValidate()) {
       return;
     }
+
     if (params.type === 'question' && params.action === 'close') {
+      if (params?.source === 'review') {
+        putFlagReviewAction({
+          flag_id: params.id,
+          operation_type: 'close_post',
+          close_type: reportType.type,
+          close_msg: content.value,
+        }).then(() => {
+          onClose();
+          asyncCallback();
+        });
+        return;
+      }
       closeQuestion({
         id: params.id,
         close_type: reportType.type,
         close_msg: content.value,
       }).then(() => {
-        callback?.();
         onClose();
+        asyncCallback();
       });
       return;
     }
     if (!params.isBackend && params.action === 'flag') {
-      postReport({
-        source: params.type,
-        report_type: reportType.type,
-        object_id: params.id,
-        content: content.value,
-      }).then(() => {
-        toast.onShow({
-          msg: t('flag_success', { keyPrefix: 'toast' }),
-          variant: 'warning',
-        });
-        callback?.();
-        onClose();
+      if (!rCaptcha) {
+        submitReport(params);
+        return;
+      }
+      rCaptcha.check(() => {
+        submitReport(params);
       });
     }
 
@@ -121,8 +250,8 @@ const useReportModal = (callback?: () => void) => {
         flagged_type: reportType.type,
         id: params.id,
       }).then(() => {
-        callback?.();
         onClose();
+        asyncCallback();
       });
     }
   };

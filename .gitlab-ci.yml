@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 include:
   - project: "segmentfault/devops/templates"
     file: ".docker-build-push.yml"
@@ -5,59 +22,18 @@ include:
     file: ".deploy-helm.yml"
 
 stages:
-  - compile-html
-  - compile-golang
-  - push
   - deploy-dev
-
-"compile the html and other static files":
-  image: node:16
-  stage: compile-html
-  tags:
-    - runner-nanjing
-  before_script:
-    - npm config set registry https://repo.huaweicloud.com/repository/npm/
-    - make install-ui-packages
-  script:
-    - make ui
-  artifacts:
-    paths:
-      - ./build
-
-"compile the golang project":
-  image: golang:1.18
-  stage: compile-golang
-  script:
-    - make generate
-    - make build
-  artifacts:
-    paths:
-      - ./answer
-
-"build docker images and push":
-  stage: push
-  extends: .docker-build-push
-  only:
-    - dev
-    - master
-    - main
-  variables:
-    DockerNamespace: sf_app
-    DockerImage: answer
-    DockerTag: "$CI_COMMIT_SHORT_SHA latest"
-    DockerfilePath: .
-    PushPolicy: qingcloud
 
 "deploy-to-local-develop-environment":
   stage: deploy-dev
   extends: .deploy-helm
   only:
-    - main
+    - test
   variables:
     LoadBalancerIP: 10.0.10.98
     KubernetesCluster: dev
     KubernetesNamespace: "sf-web"
-    InstallArgs: --set service.loadBalancerIP=${LoadBalancerIP} --set image.tag=$CI_COMMIT_SHORT_SHA --set replicaCount=1 --set serivce.targetPort=80
+    InstallArgs: --set service.loadBalancerIP=${LoadBalancerIP} --set image.tag=latest --set replicaCount=1 --set serivce.targetPort=80
     ChartName: answer
     InstallPolicy: replace
 
